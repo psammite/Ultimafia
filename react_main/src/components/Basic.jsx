@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 import { emotify } from "./Emotes";
 import { filterProfanitySegment } from "../lib/profanity";
 import { MediaEmbed } from "../pages/User/User";
-import { slangList } from "../json/slangList";
+import { slangList } from "../constants/slangList";
 import { Slang } from "./Slang";
 
 export function ItemList(props) {
@@ -66,7 +66,7 @@ export function Time(props) {
     i++;
   }
 
-  if (minSec && unit == "millisecond") return `Less than a second${suffix}`;
+  if (minSec && unit === "millisecond") return `Less than a second${suffix}`;
 
   value = Math.floor(value);
 
@@ -109,7 +109,12 @@ export function UserText(props) {
     let text = props.text;
 
     if (props.filterProfanity)
-      text = filterProfanity(text, props.settings, props.profChar);
+      text = filterProfanity(
+        text,
+        props.settings,
+        props.profChar,
+        props.slangifySeed
+      );
 
     if (props.linkify) text = linkify(text);
 
@@ -161,7 +166,7 @@ export function linkify(text) {
   }
 
   text = text.flat();
-  return text.length == 1 ? text[0] : text;
+  return text.length === 1 ? text[0] : text;
 }
 
 // Takes a chat Message (string or [string]) and allows hovering over its <slang>, revealing a Popover w/ more info
@@ -209,7 +214,7 @@ export const slangify = ({ chatMessage, slangifySeed, displayEmoji }) => {
   return chatMessage;
 };
 
-export function filterProfanity(text, settings, char) {
+export function filterProfanity(text, settings, char, seed) {
   if (text == null) return;
 
   if (!Array.isArray(text)) text = [text];
@@ -224,7 +229,7 @@ export function filterProfanity(text, settings, char) {
     char = char || "*";
 
     if (!settings.disablePg13Censor)
-      segment = filterProfanitySegment("swears", segment, char);
+      segment = filterProfanitySegment("swears", segment, char, seed);
 
     if (!settings.disableAllCensors)
       segment = filterProfanitySegment("slurs", segment, char);
@@ -233,7 +238,7 @@ export function filterProfanity(text, settings, char) {
   }
 
   text = text.flat();
-  return text.length == 1 ? text[0] : text;
+  return text.length === 1 ? text[0] : text;
 }
 
 export function iconUsername(text, players) {
@@ -280,7 +285,7 @@ export function iconUsername(text, players) {
   }
 
   text = text.flat();
-  return text.length == 1 ? text[0] : text;
+  return text.length === 1 ? text[0] : text;
 }
 
 function InlineAvatar(props) {
@@ -318,7 +323,10 @@ export function basicRenderers() {
       return emotify(props.value);
     },
     image: (props) => {
-      if (/\.(webm|mp4|mp3|ogg)$/.test(props.src)) {
+      if (
+        /\.(webm|mp4|mp3|ogg)$/.test(props.src) ||
+        youtubeRegex.test(props.src)
+      ) {
         return <MediaEmbed mediaUrl={props.src} />;
       } else {
         return <img alt={props.value} src={props.src} />;

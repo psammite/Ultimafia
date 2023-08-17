@@ -8,7 +8,6 @@ import {
   ActionList,
   PlayerList,
   Timer,
-  SpeechFilter,
   Notes,
 } from "./Game";
 import { GameContext } from "../../Contexts";
@@ -22,7 +21,6 @@ export default function JottoGame(props) {
 
   const history = game.history;
   const updateHistory = game.updateHistory;
-  const updatePlayers = game.updatePlayers;
   const stateViewing = game.stateViewing;
   const updateStateViewing = game.updateStateViewing;
   const self = game.self;
@@ -35,10 +33,6 @@ export default function JottoGame(props) {
   const meetings = history.states[stateViewing]
     ? history.states[stateViewing].meetings
     : {};
-  const stateEvents = history.states[stateViewing]
-    ? history.states[stateViewing].stateEvents
-    : [];
-  const stateNames = ["Select Word", "Guess Word"];
   const audioFileNames = [];
   const audioLoops = [];
   const audioOverrides = [];
@@ -111,7 +105,7 @@ export default function JottoGame(props) {
       <ThreePanelLayout
         leftPanelContent={
           <>
-            {history.currentState == -1 && (
+            {history.currentState === -1 && (
               <PlayerList
                 players={players}
                 history={history}
@@ -143,6 +137,7 @@ export default function JottoGame(props) {
               settings={game.settings}
               filters={game.speechFilters}
               options={game.options}
+              setup={game.setup}
               // agoraClient={game.agoraClient}
               localAudioTrack={game.localAudioTrack}
               setActiveVoiceChannel={game.setActiveVoiceChannel}
@@ -184,21 +179,27 @@ function JottoCheatSheetWrapper(props) {
 
 function JottoCheatSheet() {
   let cheatsheetRows = ["ABCDE", "FGHIJ", "KLMNO", "PQRST", "UVWXY", "Z"];
+  const [toReset, setToReset] = useState(false);
 
-  let enableReset = false;
-  function resetCheatsheet() {}
+  function resetCheatsheet() {
+    setToReset(true);
+  }
+
+  useEffect(() => {
+    if (toReset) {
+      setToReset(false);
+    }
+  });
 
   return (
     <>
       <div className="jotto-cheatsheet">
         {cheatsheetRows.map((row) => {
-          return <CheatSheetRow letters={row} />;
+          return <CheatSheetRow letters={row} toReset={toReset} />;
         })}
-        {enableReset && (
-          <div className="btn jotto-cheatsheet-clear" onClick={resetCheatsheet}>
-            CLEAR
-          </div>
-        )}
+        <div className="btn jotto-cheatsheet-clear" onClick={resetCheatsheet}>
+          CLEAR
+        </div>
       </div>
     </>
   );
@@ -206,10 +207,11 @@ function JottoCheatSheet() {
 
 function CheatSheetRow(props) {
   const letters = props.letters;
+  const toReset = props.toReset;
 
   let rowData = [];
   for (let letter of letters) {
-    rowData.push(<CheatSheetBox letter={letter} />);
+    rowData.push(<CheatSheetBox letter={letter} toReset={toReset} />);
   }
 
   return (
@@ -228,6 +230,12 @@ function CheatSheetBox(props) {
   const clickBox = () => {
     setNumClicks(numClicks + 1);
   };
+
+  useEffect(() => {
+    if (props.toReset) {
+      setNumClicks(0);
+    }
+  });
 
   return (
     <>
@@ -306,12 +314,24 @@ function JottoGuessHistoryByName(props) {
 function JottoGuess(props) {
   let word = props.word;
   let score = props.score;
+  let [checked, setChecked] = useState();
+
+  function toggleChecked() {
+    setChecked(!checked);
+  }
+
+  const checkedClass = checked ? "done" : "";
 
   return (
     <>
       <div className="jotto-guess">
         <div className={`jotto-guess-score guess-score-${score}`}>{score}</div>
-        <div className="jotto-guess-word">{word}</div>
+        <div
+          className={`jotto-guess-word ${checkedClass}`}
+          onClick={toggleChecked}
+        >
+          {word}
+        </div>
       </div>
     </>
   );

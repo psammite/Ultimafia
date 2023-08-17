@@ -31,9 +31,9 @@ export default function HostJotto() {
 
   let defaultLobby = localStorage.getItem("lobby");
   if (
-    defaultLobby == "All" ||
-    defaultLobby == "Mafia" ||
-    defaultLobby == "Competitive"
+    defaultLobby === "All" ||
+    defaultLobby === "Mafia" ||
+    defaultLobby === "Competitive"
   ) {
     defaultLobby = "Games";
   }
@@ -63,6 +63,21 @@ export default function HostJotto() {
       ref: "competitiveMode",
       type: "boolean",
       value: false,
+    },
+    {
+      label: "Win With Anagrams",
+      ref: "winOnAnagrams",
+      type: "boolean",
+      value: true,
+    },
+    {
+      label: "No. Anagrams Required",
+      ref: "numAnagramsRequired",
+      type: "number",
+      value: 3,
+      min: 1,
+      max: 4,
+      showIf: "winOnAnagrams",
     },
     {
       label: "Lobby",
@@ -177,6 +192,8 @@ export default function HostJotto() {
           wordLength: getFormFieldValue("wordLength"),
           duplicateLetters: getFormFieldValue("duplicateLetters"),
           competitiveMode: getFormFieldValue("competitiveMode"),
+          winOnAnagrams: getFormFieldValue("winOnAnagrams"),
+          numAnagramsRequired: getFormFieldValue("numAnagramsRequired"),
           anonymousGame: getFormFieldValue("anonymousGame"),
           anonymousDeckId: getFormFieldValue("anonymousDeckId"),
         })
@@ -195,7 +212,7 @@ export default function HostJotto() {
   }
 
   function getFormFieldValue(ref) {
-    for (let field of formFields) if (field.ref == ref) return field.value;
+    for (let field of formFields) if (field.ref === ref) return field.value;
   }
 
   if (redirect) return <Redirect to={redirect} />;

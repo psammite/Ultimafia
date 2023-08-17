@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
+import React, { useState, useLayoutEffect, useRef } from "react";
 
 import { useOnOutsideClick } from "./Basic";
 
@@ -6,12 +6,12 @@ export default function Dropdown(props) {
   const [menuVisible, setMenuVisible, dropdownContainerRef, dropdownMenuRef] =
     useDropdown();
   const selOption = props.options.filter(
-    (option) => option == props.value || option.id == props.value
+    (option) => option === props.value || option.id === props.value
   )[0];
   const selLabel = selOption ? selOption.label || selOption : "";
 
   const menuItems = props.options.map((option) => {
-    if (option == "divider") return <div className="dropdown-divider" />;
+    if (option === "divider") return <div className="dropdown-divider" />;
 
     if (typeof option == "string") option = { id: option, label: option };
 
@@ -93,6 +93,8 @@ export function useDropdown() {
 
     if (menuTop + menuRect.height - window.scrollY > window.innerHeight)
       menuTop = containerRect.top - menuRect.height - 2;
+
+    if (menuTop < 0) menuTop = 0;
 
     if (menuHorzShift < 0) {
       if (menuLeft + menuHorzShift < 0)

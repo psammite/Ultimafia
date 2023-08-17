@@ -79,7 +79,9 @@ router.get("/list", async function (req, res) {
       newGame.type = game.type;
       newGame.setup = await models.Setup.findOne({
         id: game.settings.setup,
-      }).select("id gameType name roles closed useRoleGroups count total -_id");
+      }).select(
+        "id gameType name roles closed useRoleGroups roleGroupSizes count total -_id"
+      );
       newGame.setup = newGame.setup.toJSON();
       newGame.hostId = game.hostId;
       newGame.players = game.players.length;
@@ -114,7 +116,7 @@ router.get("/list", async function (req, res) {
         constants.lobbyPageSize - games.length,
         [
           "setup",
-          "id gameType name roles closed useRoleGroups count total -_id",
+          "id gameType name roles closed useRoleGroups roleGroupSizes count total -_id",
         ]
       );
       finishedGames = finishedGames.map((game) => ({
@@ -670,11 +672,17 @@ const lobbyChecks = {
 const settingsChecks = {
   Mafia: (settings, setup) => {
     var extendLength = Number(settings.extendLength);
-
     if (extendLength < 1 || extendLength > 5)
       return "Extension length must be between 1 and 5 minutes.";
 
-    return { extendLength };
+    var pregameWaitLength = Number(settings.pregameWaitLength);
+    if (pregameWaitLength < 1 || pregameWaitLength > 6) {
+      return "Pregame wait length must be between 1 and 6 hours.";
+    }
+
+    var broadcastClosedRoles = Boolean(settings.broadcastClosedRoles);
+
+    return { extendLength, pregameWaitLength, broadcastClosedRoles };
   },
   "Split Decision": (settings, setup) => {
     return {};
@@ -732,8 +740,20 @@ const settingsChecks = {
 
     let duplicateLetters = Boolean(settings.duplicateLetters);
     let competitiveMode = Boolean(settings.competitiveMode);
+    let winOnAnagrams = Boolean(settings.winOnAnagrams);
+    let numAnagramsRequired = Number(settings.numAnagramsRequired);
 
-    return { wordLength, duplicateLetters, competitiveMode };
+    if (numAnagramsRequired < 1) {
+      return "Number of required anagrams must be at least 1";
+    }
+
+    return {
+      wordLength,
+      duplicateLetters,
+      competitiveMode,
+      winOnAnagrams,
+      numAnagramsRequired,
+    };
   },
   Acrotopia: (settings, setup) => {
     let roundAmt = settings.roundAmt;

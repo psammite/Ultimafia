@@ -20,6 +20,7 @@ const modifierData = require("../../data/modifiers");
 const logger = require("../../modules/logging")("games");
 const constants = require("../../data/constants");
 const renamedRoleMapping = require("../../data/renamedRoles");
+const renamedModifierMapping = require("../../data/renamedModifiers");
 const routeUtils = require("../../routes/utils");
 const PostgameMeeting = require("./PostgameMeeting");
 const VegKickMeeting = require("./VegKickMeeting");
@@ -62,7 +63,7 @@ module.exports = class Game {
     this.pregameWaitLength =
       options.settings.pregameWaitLength != null
         ? options.settings.pregameWaitLength
-        : 60 * 60 * 1000 * 24;
+        : 1;
     this.pregameCountdownLength =
       options.settings.pregameCountdownLength != null
         ? options.settings.pregameCountdownLength
@@ -162,17 +163,21 @@ module.exports = class Game {
   }
 
   startHostingTimer() {
-    this.createTimer("pregameWait", this.pregameWaitLength, () => {
-      this.sendAlert(
-        "Waited too long to start...This game will be closed in the next 30 seconds."
-      );
+    this.createTimer(
+      "pregameWait",
+      this.pregameWaitLength * 60 * 60 * 1000,
+      () => {
+        this.sendAlert(
+          "Waited too long to start...This game will be closed in the next 30 seconds."
+        );
 
-      this.createTimer("pregameWait", 30 * 1000, () => {
-        for (let p of this.players) {
-          this.kickPlayer(p);
-        }
-      });
-    });
+        this.createTimer("pregameWait", 30 * 1000, () => {
+          for (let p of this.players) {
+            this.kickPlayer(p);
+          }
+        });
+      }
+    );
   }
 
   broadcast(eventName, data) {
@@ -333,6 +338,12 @@ module.exports = class Game {
           delete this.playersGone[user.id];
         }
 
+        const timeLeft = Math.round(
+          this.getTimeLeft("pregameWait") / 1000 / 60
+        );
+        player.sendAlert(
+          `This lobby will close if it is not filled in ${timeLeft} minutes.`
+        );
         this.players.push(player);
         this.joinMutexUnlock();
         this.sendPlayerJoin(player);
@@ -774,19 +785,34 @@ module.exports = class Game {
   patchRenamedRoles() {
     // patch this.setup.roles
     let mappedRoles = renamedRoleMapping[this.type];
-    if (!mappedRoles) return;
+    let mappedModifiers = renamedModifierMapping[this.type];
+    if (!mappedRoles && !mappedModifiers) return;
 
     for (let j in this.setup.roles) {
       let roleSet = this.setup.roles[j];
       let newRoleSet = {};
       for (let originalRoleName in roleSet) {
-        let [roleName, modifier] = originalRoleName.split(":");
-        let newName = mappedRoles[roleName] || roleName;
-        let newRoleName = [newName, modifier].join(":");
+        let [roleName, modifiers] = originalRoleName.split(":");
 
-        if (!newRoleSet[newRoleName]) newRoleSet[newRoleName] = 0;
+        var newName = "";
+        if (!modifiers || modifiers.length == 0) {
+          newName = mappedRoles[roleName] || roleName;
+        } else {
+          let modifierNames = modifiers.split("/");
+          let newModifierNames = [];
+          for (let originalModifierName of modifierNames) {
+            let newModifierName =
+              mappedRoles[originalModifierName] || originalModifierName;
+            newModifierNames.push(newModifierName);
+          }
+          const newModifierNamesString = newModifierNames.join("/");
+          let newRoleName = mappedRoles[roleName] || roleName;
+          newName = [newRoleName, newModifierNamesString].join(":");
+        }
 
-        newRoleSet[newRoleName] += roleSet[originalRoleName];
+        if (!newRoleSet[newName]) newRoleSet[newName] = 0;
+
+        newRoleSet[newName] += roleSet[originalRoleName];
       }
       this.setup.roles[j] = newRoleSet;
     }
@@ -943,7 +969,7 @@ module.exports = class Game {
     this.history.recordAllDead();
 
     // Check if states will be skipped
-    var [_, skipped] = this.getNextStateIndex();
+    var [index, skipped] = this.getNextStateIndex();
 
     // Do actions
     if (!stateInfo.delayActions || skipped > 0) this.processActionQueue();
@@ -952,7 +978,7 @@ module.exports = class Game {
     if (this.checkGameEnd()) return;
 
     // Set next state
-    this.incrementState();
+    this.incrementState(index, skipped);
     this.stateEvents = {};
     stateInfo = this.getStateInfo();
 
@@ -1050,10 +1076,12 @@ module.exports = class Game {
       player.addStateExtraInfoToHistory(extraInfo, state);
   }
 
-  incrementState() {
+  incrementState(index, skipped) {
     this.currentState++;
 
-    var [index, skipped] = this.getNextStateIndex();
+    if (index === undefined || skipped === undefined) {
+      [index, skipped] = this.getNextStateIndex();
+    }
     this.stateIndexRecord.push(index);
     return skipped;
   }
@@ -1123,6 +1151,15 @@ module.exports = class Game {
       clients,
     });
     this.timers[name].start();
+  }
+
+  getTimeLeft(timerName) {
+    const timer = this.timers[timerName];
+    if (!timer) {
+      return 0;
+    }
+
+    return timer.timeLeft();
   }
 
   clearTimer(timer) {
@@ -1203,9 +1240,8 @@ module.exports = class Game {
   setStateShouldSkip(name, shouldSkip) {
     for (let i in this.states) {
       if (this.states[i].name == name) {
-        if (this.states[i].shouldSkip == null) this.states[i].shouldSkip = [];
-
-        this.states[i].shouldSkip.push(shouldSkip);
+        if (this.states[i].skipChecks == null) this.states[i].skipChecks = [];
+        this.states[i].skipChecks.push(shouldSkip);
         break;
       }
     }
@@ -1309,9 +1345,9 @@ module.exports = class Game {
     this.actions[delay].enqueue(action);
   }
 
-  dequeueAction(action) {
+  dequeueAction(action, force) {
     for (let i in this.actions) {
-      if (this.processingActionQueue && i == 0) continue;
+      if (!force && this.processingActionQueue && i == 0) continue;
 
       this.actions[i].remove(action);
     }
@@ -1368,6 +1404,10 @@ module.exports = class Game {
 
   isMustAct() {
     return this.mustAct || this.setup.mustAct;
+  }
+
+  isMustCondemn() {
+    return this.mustCondemn || this.setup.mustCondemn;
   }
 
   isNoAct() {

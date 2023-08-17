@@ -39,14 +39,15 @@ import User, { Avatar, useUser } from "./pages/User/User";
 import Legal from "./pages/Legal/Legal";
 import Popover, { usePopover } from "./components/Popover";
 import Chat from "./pages/Chat/Chat";
-import Emotes from "./pages/Chat/EmoteList";
 
 import "./css/main.css";
 import { useReducer } from "react";
 import { setCaptchaVisible } from "./utils";
+import LoadingPage from "./pages/Loading";
 
 function Main() {
   var cacheVal = window.localStorage.getItem("cacheVal");
+  const [isLoading, setLoading] = useState(true);
 
   if (!cacheVal) {
     cacheVal = Date.now();
@@ -143,7 +144,7 @@ function Main() {
           setCaptchaVisible(true);
         }
 
-        if (res.data.nameChanged == false) {
+        if (res.data.nameChanged === false) {
           siteInfo.showAlert(
             () => (
               <div>
@@ -173,13 +174,15 @@ function Main() {
         res = await axios.get("/roles/all");
         siteInfo.update("roles", res.data);
 
-        res = await axios.get("/roles/modifiers");
-        siteInfo.update("modifiers", res.data);
-
         res = await axios.get("/roles/raw");
         siteInfo.update("rolesRaw", res.data);
+
+        res = await axios.get("/roles/modifiers");
+        siteInfo.update("modifiers", res.data);
       } catch (e) {
         errorAlert(e);
+      } finally {
+        setLoading(false);
       }
     }
 
@@ -193,6 +196,10 @@ function Main() {
       clearInterval(onlineInterval);
     };
   }, []);
+
+  if (isLoading) {
+    return <LoadingPage />;
+  }
 
   return (
     <UserContext.Provider value={user}>
@@ -214,7 +221,6 @@ function Main() {
                       <Route path="/auth" render={() => <Auth />} />
                       <Route path="/user" render={() => <User />} />
                       <Route path="/legal" render={() => <Legal />} />
-                      <Route path="/emotes" render={() => <Emotes />} />
                       <Route render={() => <Redirect to="/play" />} />
                     </Switch>
                   </div>
@@ -248,12 +254,7 @@ function Header(props) {
       </Link>
       <div className="nav-wrapper right">
         <Nav>
-          <a href="../learn" target="_self">
-            Learn
-          </a>
-          <a href="../emotes" target="_self">
-            Emotes
-          </a>
+          <NavLink to="/learn">Learn</NavLink>
           {!user.loggedIn && (
             <NavLink to="/auth" className="nav-link">
               Log In
@@ -352,7 +353,7 @@ function SiteNotifs() {
 
   function onNotifClick(e, notif) {
     if (!notif.link) e.preventDefault();
-    else if (window.location.pathname == notif.link.split("?")[0])
+    else if (window.location.pathname === notif.link.split("?")[0])
       history.go(0);
   }
 
@@ -386,7 +387,7 @@ function SiteNotifs() {
       {showNotifList && (
         <div className="notif-list" ref={notifListRef}>
           {notifs}
-          {notifs.length == 0 && "No unread notifications"}
+          {notifs.length === 0 && "No unread notifications"}
         </div>
       )}
     </div>
@@ -402,7 +403,7 @@ function useNotifInfoReducer() {
         case "add":
           var existingNotifIds = notifInfo.notifs.map((notif) => notif.id);
           var newNotifs = action.notifs.filter(
-            (notif) => existingNotifIds.indexOf(notif.id) == -1
+            (notif) => existingNotifIds.indexOf(notif.id) === -1
           );
 
           newNotifInfo = update(notifInfo, {

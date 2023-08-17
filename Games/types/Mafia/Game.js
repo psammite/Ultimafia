@@ -1,7 +1,7 @@
 const Game = require("../../core/Game");
 const Player = require("./Player");
 const Queue = require("../../core/Queue");
-const Winners = require("../../core/Winners");
+const Winners = require("./Winners");
 const Action = require("./Action");
 const stateEventMessages = require("./templates/stateEvents");
 const roleData = require("../../../data/roles");
@@ -28,7 +28,9 @@ module.exports = class MafiaGame extends Game {
         length: options.settings.stateLengths["Day"],
       },
     ];
+    this.pregameWaitLength = options.settings.pregameWaitLength;
     this.extendLength = options.settings.extendLength;
+    this.broadcastClosedRoles = options.settings.broadcastClosedRoles;
     this.dayCount = 0;
     this.spectatorMeetFilter = {
       Village: true,
@@ -43,8 +45,28 @@ module.exports = class MafiaGame extends Game {
     this.extensionVotes = 0;
   }
 
+  rebroadcastSetup() {
+    if (this.setup.closed && this.broadcastClosedRoles) {
+      this.setup.closed = false;
+      this.setup.closedRoles = this.setup.roles;
+      this.setup.roles = [
+        Object.values(this.originalRoles).reduce((acc, e) => {
+          if (!acc[e]) {
+            acc[e] = 1;
+          } else {
+            acc[e]++;
+          }
+          return acc;
+        }, {}),
+      ];
+      this.broadcast("setup", this.setup);
+    }
+  }
+
   assignRoles() {
     super.assignRoles();
+
+    this.rebroadcastSetup();
 
     for (let playerId in this.originalRoles) {
       let roleName = this.originalRoles[playerId].split(":")[0];
@@ -71,7 +93,9 @@ module.exports = class MafiaGame extends Game {
       let action = new Action({
         actor: player,
         target: player,
+        priority: -999,
         game: this,
+        labels: ["hidden", "absolute", "uncontrollable"],
         run: function () {
           this.target.kill("leave", this.actor, true);
         },
@@ -100,8 +124,8 @@ module.exports = class MafiaGame extends Game {
     for (let player of this.players) player.recordStat("totalGames");
   }
 
-  incrementState() {
-    super.incrementState();
+  incrementState(index, skipped) {
+    super.incrementState(index, skipped);
 
     if (
       (this.setup.startState == "Night" && this.getStateName() == "Night") ||
@@ -129,8 +153,18 @@ module.exports = class MafiaGame extends Game {
     var mustAct = super.isMustAct();
     mustAct |=
       this.statesSinceLastDeath >= this.noDeathLimit &&
-      this.getStateName() != "Sunset";
+      this.getStateName() != "Sunset" &&
+      meeting.name != "Village";
     return mustAct;
+  }
+
+  isMustCondemn() {
+    var mustCondemn = super.isMustCondemn();
+    mustCondemn |=
+      this.statesSinceLastDeath >= this.noDeathLimit &&
+      this.getStateName() != "Sunset" &&
+      meeting.name == "Village";
+    return mustCondemn;
   }
 
   inactivityCheck() {
@@ -200,10 +234,6 @@ module.exports = class MafiaGame extends Game {
       this.meteorImminent = true;
 
     super.checkVeg();
-  }
-
-  gotoNextState() {
-    super.gotoNextState();
   }
 
   isNoAct() {
@@ -280,6 +310,8 @@ module.exports = class MafiaGame extends Game {
   getGameTypeOptions() {
     return {
       extendLength: this.extendLength,
+      pregameWaitLength: this.pregameWaitLength,
+      broadcastClosedRoles: this.broadcastClosedRoles,
     };
   }
 };
