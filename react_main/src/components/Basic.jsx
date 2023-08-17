@@ -133,7 +133,7 @@ export function UserText(props) {
     setContent(text);
   }, [props.text, props.terminologyEmoticons]);
 
-  return content;
+  return content ?? "";
 }
 
 export function linkify(text) {
@@ -142,6 +142,15 @@ export function linkify(text) {
   if (!Array.isArray(text)) text = [text];
 
   const linkRegex = /http(s{0,1}):\/\/([\w.]+)\.(\w+)([^\s]*)/g;
+
+  function onLinkCLick(e) {
+    if (window.confirm("Visit external link?")) {
+      return true;
+    } else {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }
 
   for (let i in text) {
     let _segment = text[i];
@@ -152,7 +161,7 @@ export function linkify(text) {
     while (regexRes) {
       segment.push(_segment.slice(lastIndex, regexRes.index));
       segment.push(
-        <a href={regexRes[0]} target="blank" key={lastIndex}>
+        <a href={regexRes[0]} target="_blank" key={lastIndex} onClick={onLinkCLick}>
           {regexRes[0]}
         </a>
       );
