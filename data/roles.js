@@ -168,33 +168,12 @@ const roleData = {
         "This gun never reveals the deputy when shot.",
       ],
     },
-    Veteran: {
-      alignment: "Village",
-      disabled: true,
-      description: ["Starts with armor.", "Armor blocks a single attack."],
-    },
-    Bomber: {
-      alignment: "Village",
-      disabled: true,
-      description: [
-        "Starts with a bomb.",
-        "Bomb goes off when player is killed, targeting the attacker.",
-        "Bomb does not go off when condemned by village.",
-      ],
-    },
-    "Village Idiot": {
-      disabled: true,
-      alignment: "Village",
-      description: [
-        "Sees all speech as coming from random people.",
-        "Appears as Villager to self.",
-      ],
-    },
     Medic: {
       alignment: "Village",
+      recentlyUpdated: true,
       description: [
-        "Saves one player from dying each night.",
-        "Can save self.",
+        "Visits two players each night.",
+        "If the first person is targeted for a night kill, the second person gains an extra life.",
       ],
     },
     Granny: {
@@ -304,7 +283,7 @@ const roleData = {
     Caroler: {
       alignment: "Village",
       description: [
-        "Sings a carol to a player about 3 people, at least one of whom is Mafia aligned.",
+        "Sings a carol to a player about 3 people, at least one of whom is Mafia, Cult, or Hostile.",
         "The carol is not heard if the player chosen visits at night.",
         "Cannot choose same the player consecutively.",
       ],
@@ -312,7 +291,7 @@ const roleData = {
     Dreamer: {
       alignment: "Village",
       description: [
-        "Dreams about 3 people, at least one of whom is Mafia aligned, or about 1 player who is Village aligned.",
+        "Dreams about 3 people, at least one of whom is Mafia, Cult, or Hostile; or about 1 player who is Village aligned.",
         "Does not dream if visited at night.",
       ],
     },
@@ -422,16 +401,6 @@ const roleData = {
         "Everyone will share a party meeting at night.",
       ],
     },
-    Loudmouth: {
-      alignment: "Village",
-      disabled: true,
-      description: [
-        "If visited, cries out the identity of players who visited them during the night.",
-        "Appears as villager to self.",
-        "All whispers leak.",
-        "Immune to silencing.",
-      ],
-    },
     Ghost: {
       alignment: "Village",
       description: [
@@ -464,12 +433,12 @@ const roleData = {
     },
     Trickster: {
       alignment: "Village",
+      recentlyUpdated: true,
       description: [
         "Gives out an item each night to a random player.",
         "The item can be a Gun, Knife, Armor, Whiskey, or Crystal.",
         "The item has a 50% chance to be Cursed.",
         "Cursed items will misfire or be otherwise ineffective.",
-        "Appears as Villager to self.",
       ],
     },
     Medium: {
@@ -540,10 +509,8 @@ const roleData = {
     },
     King: {
       alignment: "Village",
-      description: [
-        "Vote overrides others in village meeting.",
-        "Appears as Villager to self.",
-      ],
+      recentlyUpdated: true,
+      description: ["Vote overrides others in village meeting."],
     },
     Suitress: {
       alignment: "Village",
@@ -555,10 +522,8 @@ const roleData = {
     },
     Sleepwalker: {
       alignment: "Village",
-      description: [
-        "Visits a random player each night.",
-        "Appears as Villager to self.",
-      ],
+      recentlyUpdated: true,
+      description: ["Visits a random player each night."],
     },
     Messenger: {
       alignment: "Village",
@@ -671,8 +636,8 @@ const roleData = {
     },
     Scapegoat: {
       alignment: "Village",
+      recentlyUpdated: true,
       description: [
-        "Appears to self as Villager.",
         "When the Scapegoat receives the majority of the Village vote, they will not be condemned.",
         "Will get frustrated and die if it has a non-zero minority Village vote.",
       ],
@@ -693,10 +658,11 @@ const roleData = {
     },
     Shrink: {
       alignment: "Village",
+      recentlyUpdated: true,
       description: [
         "Each night, counsels one player and heals their insanity.",
         "Prevents their target from being converted.",
-        "If their target was a Serial Killer, the target will become a Villager.",
+        "If their target was a Hostile, the target will become a Villager.",
       ],
     },
     Turncoat: {
@@ -806,6 +772,12 @@ const roleData = {
       alignment: "Village",
       description: [
         "Once per game, visits every other player during the night.",
+      ],
+    },
+    "Tea Lady": {
+      alignment: "Village",
+      description: [
+        "If both of the Tea Lady's neighbors are aligned with the Village, they can't die.",
       ],
     },
 
@@ -1131,23 +1103,11 @@ const roleData = {
       alignment: "Mafia",
       description: ["Kills one player each night."],
     },
-    Framer: {
-      alignment: "Mafia",
-      disabled: true,
-      description: [
-        "Chooses a living player each night to appear as a member of the Mafia to investigative roles.",
-      ],
-    },
     Apprentice: {
       alignment: "Mafia",
       description: [
         "Chooses to become the role of a dead Mafia-aligned player once per game.",
       ],
-    },
-    Butler: {
-      disabled: true,
-      alignment: "Mafia",
-      description: ["Appears as a Villager upon death."],
     },
     Hoaxer: {
       alignment: "Mafia",
@@ -1242,10 +1202,11 @@ const roleData = {
     },
     Enforcer: {
       alignment: "Mafia",
+      recentlyUpdated: true,
       description: [
         "Each night, counsels one player and heals their insanity.",
         "Prevents their target from being converted.",
-        "If their target was a Serial Killer, the target will become a Traitor.",
+        "If their target was a Hostile, the target will become a Traitor.",
       ],
     },
     Tagger: {
@@ -1288,6 +1249,12 @@ const roleData = {
         "Once per game, visits every other player during the night.",
       ],
     },
+    Lobotomist: {
+      alignment: "Mafia",
+      description: [
+        "Each night, convert another player to the aligned vanilla role.",
+      ],
+    },
 
     //Cult
     Werewolf: {
@@ -1309,12 +1276,19 @@ const roleData = {
         "All votes and speech are anonymous during an eclipse.",
       ],
     },
+    "Cult Leader": {
+      alignment: "Cult",
+      newlyAdded: true,
+      description: [
+        "Converts one player into a Cultist each night.",
+        "All Cultists die if the Cult Leader dies.",
+      ],
+    },
     Cultist: {
       alignment: "Cult",
+      recentlyUpdated: true,
       description: [
         "Meets with the Cult during the night.",
-        "Cultists convert one player into a Cultist each night.",
-        "All Cultists die if their leader (original Cultist) dies.",
         "Cultists die if targeted by a Freemason meeting.",
       ],
     },
@@ -1463,6 +1437,14 @@ const roleData = {
         "Wins if shot with a gun.",
         "Flocks around at night, giving their target a gun.",
         "No one else wins if the Dodo wins.",
+      ],
+    },
+    Joker: {
+      alignment: "Independent",
+      newlyAdded: true,
+      description: [
+        "Wins if killed at Night.",
+        "No one else wins if the Joker wins.",
       ],
     },
     Admirer: {
@@ -1661,9 +1643,11 @@ const roleData = {
     },
     Angel: {
       alignment: "Independent",
+      graveyardParticipation: "self",
+      recentlyUpdated: true,
       description: [
         "Will become the guardian angel for one player in the game.",
-        "Once per game, can turn on sacrificial powers and protect their target from all kills",
+        "Once per game while alive or dead, can turn on sacrificial powers and protect their target from all kills",
         "Wins if their target is alive at the end of the game.",
       ],
     },
@@ -1803,6 +1787,14 @@ const roleData = {
         "A polarised player visiting another polarised player will kill both of them.",
         "If visited by a Penguin, will eat it.",
         "Wins if four polarised players die or if majority is attained.",
+      ],
+    },
+    Benandante: {
+      alignment: "Hostile",
+      newlyAdded: true,
+      description: [
+        "Participates in both the Mafia and Cult meetings.",
+        "If alive during a Mafia victory, the Cult joint-wins with the Mafia and vice-versa.",
       ],
     },
   },
