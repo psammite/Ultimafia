@@ -40,12 +40,11 @@ module.exports = class Dream extends Card {
             const chosenOne = Random.randArrayVal(village);
             dream = `:sy2f: You had a dream that you can trust ${chosenOne.name}...`;
           } else {
-            var chosenThree = [
-              Random.randArrayVal(aliveExceptSelf, true),
-              Random.randArrayVal(aliveExceptSelf, true),
-              Random.randArrayVal(aliveExceptSelf, true),
-            ];
-            chosenThree[0] = Random.randArrayVal(evilPlayers);
+            var chosenThree = [Random.randArrayVal(evilPlayers)];
+            aliveExceptSelfAndChosen = aliveExceptSelf.filter((p) => p !== chosenThree[0]);
+            aliveExceptSelfAndChosen = Random.randomizeArray(aliveExceptSelfAndChosen);
+            chosenThree.push(aliveExceptSelfAndChosen[0]);
+            chosenThree.push(aliveExceptSelfAndChosen[1]);
             chosenThree = Random.randomizeArray(chosenThree);
             dream = `:sy2f: You had a dream where at least one of ${chosenThree[0].name}, ${chosenThree[1].name}, and ${chosenThree[2].name} is evil...`;
           }

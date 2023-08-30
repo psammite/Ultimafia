@@ -14,12 +14,12 @@ module.exports = class TellJoke extends Card {
           labels: ["investigate"],
           priority: PRIORITY_INVESTIGATIVE_DEFAULT,
           run: function () {
-            let alive = this.game.alivePlayers();
+            let alive = Random.randomizeArray(this.game.alivePlayers());
 
             let chosen = [
-              Random.randArrayVal(alive, true),
-              Random.randArrayVal(alive, true),
-              Random.randArrayVal(alive, true),
+              alive[0],
+              alive[1],
+              alive[2],
             ];
 
             let tellJokeAbout = Random.randArrayVal(chosen).name;
