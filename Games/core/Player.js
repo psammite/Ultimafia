@@ -59,11 +59,11 @@ module.exports = class Player {
 
     this.id = shortid.generate();
     this.anonId = deckProfile.id;
-    this.user.id = shortid.generate();
     this.name = deckProfile.name;
     this.user.avatar = deckProfile.avatar;
     this.user.textColor = deckProfile.color;
     this.user.settings.deathMessage = deckProfile.deathMessage;
+    delete this.user.id;
     delete this.user.nameColor;
   }
 
