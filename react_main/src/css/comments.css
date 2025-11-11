@@ -1,26 +1,11 @@
 .comments-wrapper {
   align-self: flex-start;
-
-  margin-top: 10px;
-}
-
-.comments-wrapper .comments-input-wrapper {
-  display: flex;
-  flex-flow: row nowrap;
-  align-items: flex-start;
-  justify-content: flex-start;
+  width: 100%;
 }
 
 .comments-wrapper .reply-form {
   margin: 0px;
   padding: 0px;
-}
-
-.comments-page {
-  display: flex;
-  flex-flow: column;
-  align-items: flex-start;
-  justify-content: flex-start;
 }
 
 .comments-page .post {

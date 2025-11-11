@@ -42,6 +42,9 @@ module.exports = class Utils {
   }
 
   static pascalCase(string) {
+    if (!string) {
+      return "";
+    }
     var parts = string.split(" ");
     var res = "";
 
@@ -72,13 +75,6 @@ module.exports = class Utils {
     if (lastDigit == "3") return `${n}rd`;
 
     return `${n}th`;
-  }
-
-  static adjustColor(color) {
-    return {
-      darkTheme: this.getIncreasedBrightness(color, "#181a1b"),
-      lightTheme: this.getDecreasedBrightness(color, "#ffffff"),
-    };
   }
 
   //#region Text color stuff

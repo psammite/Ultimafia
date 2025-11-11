@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useContext } from "react";
-import { Redirect, useParams, Link } from "react-router-dom";
+import { Navigate, useParams, Link } from "react-router-dom";
 import axios from "axios";
 
-import LoadingPage from "../../Loading";
 import { useErrorAlert } from "../../../components/Alerts";
 import { getPageNavFilterArg, PageNav } from "../../../components/Nav";
 import { NameWithAvatar } from "../../User/User";
@@ -11,6 +10,7 @@ import { VoteWidget, ViewsAndReplies } from "./Forums";
 import { TextEditor } from "../../../components/Form";
 import { Time } from "../../../components/Basic";
 import { UserContext } from "../../../Contexts";
+import { NewLoading } from "../../Welcome/NewLoading";
 
 export default function Board(props) {
   const [boardInfo, setBoardInfo] = useState({});
@@ -33,7 +33,7 @@ export default function Board(props) {
 
   useEffect(() => {
     axios
-      .get(`/forums/board/${boardId}`)
+      .get(`/api/forums/board/${boardId}`)
       .then((res) => {
         setBoardInfo(res.data);
         setLoaded(true);
@@ -77,7 +77,7 @@ export default function Board(props) {
     if (filterArg == null) return;
 
     axios
-      .get(`/forums/board/${boardId}?sortType=${sortType}&${filterArg}`)
+      .get(`/api/forums/board/${boardId}?sortType=${sortType}&${filterArg}`)
       .then((res) => {
         if (res.data.threads.length > 0) {
           setBoardInfo(res.data);
@@ -95,6 +95,7 @@ export default function Board(props) {
           id={reply.author.id}
           name={reply.author.name}
           avatar={reply.author.avatar}
+          vanityUrl={reply.author.vanityUrl}
         />
         <Link
           className="reply-age"
@@ -133,6 +134,7 @@ export default function Board(props) {
             avatar={thread.author.avatar}
             name={thread.author.name}
             groups={thread.author.groups}
+            vanityUrl={thread.author.vanityUrl}
           />
           <div className="counts">
             <ViewsAndReplies
@@ -167,9 +169,9 @@ export default function Board(props) {
     );
   }
 
-  if (redirect) return <Redirect to={redirect} />;
+  if (redirect) return <Navigate to={redirect} />;
 
-  if (!loaded) return <LoadingPage />;
+  if (!loaded) return <NewLoading small />;
 
   const threads = boardInfo.threads.map(threadRowsMap);
   const pinnedThreads = boardInfo.pinnedThreads.map(threadRowsMap);
@@ -214,6 +216,11 @@ export default function Board(props) {
 }
 
 function CreateThreadModal(props) {
+  const [includePoll, setIncludePoll] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState("");
+  const [pollOptions, setPollOptions] = useState("");
+  const [pollExpiration, setPollExpiration] = useState("");
+
   const errorAlert = useErrorAlert();
   const header = "Create Thread";
 
@@ -227,6 +234,46 @@ function CreateThreadModal(props) {
         value={props.threadContent}
         onChange={props.setThreadContent}
       />
+      <div className="field-wrapper">
+        <div className="label">Create Poll</div>
+        <div className="switch-wrapper">
+          <Switch
+            value={includePoll}
+            onChange={(e) => setIncludePoll(e.target.value)}
+          />
+        </div>
+      </div>
+      {includePoll && (
+        <>
+          <div className="field-wrapper">
+            <div className="label">Question</div>
+            <input
+              type="text"
+              value={pollQuestion}
+              onChange={(e) => setPollQuestion(e.target.value)}
+              placeholder="What is your question?"
+            />
+          </div>
+          <div className="field-wrapper">
+            <div className="label">Options (comma-separated)</div>
+            <input
+              type="text"
+              value={pollOptions}
+              onChange={(e) => setPollOptions(e.target.value)}
+              placeholder="Option 1, Option 2, Option 3"
+            />
+          </div>
+          <div className="field-wrapper">
+            <div className="label">Expires in</div>
+            <input
+              type="text"
+              value={pollExpiration}
+              onChange={(e) => setPollExpiration(e.target.value)}
+              placeholder="Leave blank for no expiration"
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 
@@ -235,7 +282,7 @@ function CreateThreadModal(props) {
       <div className="post btn btn-theme" onClick={onPostThread}>
         Post
       </div>
-      <div className="cancel btn btn-theme-third" onClick={onCancel}>
+      <div className="cancel btn btn-theme-sec" onClick={onCancel}>
         Cancel
       </div>
     </div>
@@ -247,18 +294,39 @@ function CreateThreadModal(props) {
 
   function onCancel() {
     props.setShow(false);
+    setIncludePoll(false);
+    setPollQuestion("");
+    setPollOptions("");
+    setPollExpiration("");
   }
 
   function onPostThread() {
+    const threadData = {
+      board: props.boardId,
+      title: props.threadTitle,
+      content: props.threadContent,
+    };
+
+    // Add poll data if poll is included
+    if (includePoll) {
+      threadData.poll = {
+        question: pollQuestion,
+        options: pollOptions.split(/\s*,\s*/),
+        expiration: pollExpiration || null,
+      };
+    }
+
     axios
-      .post("/forums/thread", {
-        board: props.boardId,
-        title: props.threadTitle,
-        content: props.threadContent,
-      })
+      .post("/api/forums/thread", threadData)
       .then((res) => {
         props.setShow(false);
         props.setRedirect(`/community/forums/thread/${res.data}`);
+
+        // Reset poll fields
+        setIncludePoll(false);
+        setPollQuestion("");
+        setPollOptions("");
+        setPollExpiration("");
       })
       .catch(errorAlert);
   }
@@ -272,5 +340,20 @@ function CreateThreadModal(props) {
       content={content}
       footer={footer}
     />
+  );
+}
+
+function Switch(props) {
+  return (
+    <div
+      className={`switch ${props.value ? "on" : ""}`}
+      onClick={() =>
+        !props.disabled && props.onChange({ target: { value: !props.value } })
+      }
+    >
+      <div className="track" />
+      <div className="thumb" />
+      <input type="hidden" value={props.value} />
+    </div>
   );
 }

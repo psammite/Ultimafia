@@ -4,13 +4,14 @@ module.exports = class SubtractTurkeyOnDeath extends Card {
   constructor(role) {
     super(role);
 
-    //broken, not sure why yet?
-
     this.listeners = {
       death: function (player, killer, deathType) {
         if (player === this.player) {
+          if (!this.hasAbility(["Item", "WhenDead"])) {
+            return;
+          }
           this.game.queueAlert(
-            ":turkey: The town thought they caught a Turkey, but instead you lose your lunch..."
+            ":turkey: The town thought they caught a Turkey, but instead you lose your lunch…"
           );
           for (let person of this.game.players) {
             if (

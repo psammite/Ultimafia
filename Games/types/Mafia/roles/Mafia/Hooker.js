@@ -7,10 +7,10 @@ module.exports = class Hooker extends Role {
     this.alignment = "Mafia";
     this.cards = [
       "VillageCore",
-      "WinWithMafia",
-      "MeetingMafia",
+      "WinWithFaction",
+      "MeetingFaction",
+
       "NightRoleBlocker",
-      "EasterEggVirginity",
     ];
     this.meetingMods = {
       Block: {

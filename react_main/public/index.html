@@ -1,52 +1,77 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
+    <meta charset="utf-8" />
+    <style>
+      html {
+        /* Prevent flash of white when reloading screen on dark mode */
+        background-color: #121212;
+        width: 100vw;
+        height: 100vh;
+      }
+    </style>
+  </head>
+
+  <head>
     <!-- Google tag (gtag.js) -->
-    <script src="snowstorm.js"></script>
-    <script async src="%REACT_APP_GA_URL%"></script>
+    <!--<script src="snowstorm.js"></script> -->
+    <script
+      async
+      src="https://www.googletagmanager.com/gtag/js?id=G-X5P3N0872P"
+    ></script>
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag() {
         dataLayer.push(arguments);
       }
+      window.gtag = gtag;
       gtag("js", new Date());
-      gtag("config", "G-LXLH09ZPQE");
+      gtag("config", "G-X5P3N0872P");
     </script>
 
-    <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/images/favicon.webp" />
-    <meta name="viewport" content="width=device-width, shrink-to-fit=no" />
-    <meta name="author" content="UltiMafia" />
+    <link rel="icon" href="<%= assetPrefix %>/images/favicon.webp" />
+    <meta
+      name="viewport"
+      content="width=device-width, shrink-to-fit=no, initial-scale=1.0"
+    />
+    <meta name="author" content="Ultimafia" />
     <meta
       name="description"
-      content="Play thrilling social deception games with Ultimafia - online in real time. The successor to EpicMafia, we have sensational party games like Mafia and Werewolf."
+      content="Play thrilling social deception games on Ultimafia - online in real time. The successor to EpicMafia, we have sensational party games like Mafia and Werewolf."
     />
     <title>UltiMafia - successor to Epicmafia</title>
 
     <!-- Mastodon -->
-    <a rel="me" href="https://mastodon.online/@ultimafia"></a>
+    <a
+      rel="me"
+      href="https://mastodon.online/@ultimafia"
+      aria-label="Mastodon"
+    ></a>
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://ultimafia.com" />
-    <meta property="og:title" content="UltiMafia" />
+    <meta property="og:title" content="Ultimafia" />
     <meta
       property="og:description"
-      content="Play thrilling social deception games with Ultimafia - online in real time. The successor to EpicMafia, we have sensational party games like Mafia and Werewolf."
+      content="Play thrilling social deception games on Ultimafia - online in real time. The successor to EpicMafia, we have sensational party games like Mafia and Werewolf."
     />
-    <meta property="og:image" content="%PUBLIC_URL%/images/umtwbannerv5.webp" />
+    <meta
+      property="og:image"
+      content="<%= assetPrefix %>/images/umtwbannerv5.webp"
+    />
 
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image" />
     <meta property="twitter:url" content="https://ultimafia.com" />
-    <meta property="twitter:title" content="UltiMafia" />
+    <meta property="twitter:title" content="Ultimafia" />
     <meta
       property="twitter:description"
-      content="Play thrilling social deception games with Ultimafia - online in real time. The successor to EpicMafia, we have sensational party games like Mafia and Werewolf."
+      content="Play thrilling social deception games on Ultimafia - online in real time. The successor to EpicMafia, we have sensational party games like Mafia and Werewolf."
     />
     <meta
       property="twitter:image"
-      content="%PUBLIC_URL%/images/umtwbannerv5.webp"
+      content="<%= assetPrefix %>/images/umtwbannerv5.webp"
     />
 
     <link rel="stylesheet" href="/css/fontawesome.min.css" />

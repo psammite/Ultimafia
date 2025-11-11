@@ -6,7 +6,7 @@ const { PRIORITY_NIGHT_ROLE_BLOCKER } = require("../const/Priority");
 module.exports = class Alcoholic extends Effect {
   constructor() {
     super("Alcoholic");
-
+    this.isMalicious = true;
     this.listeners = {
       state: function () {
         if (this.game.getStateName() != "Night") return;
@@ -24,6 +24,9 @@ module.exports = class Alcoholic extends Effect {
           game: this.player.game,
           priority: PRIORITY_NIGHT_ROLE_BLOCKER,
           run: function () {
+            if (!this.actor.hasEffect("Alcoholic")) {
+              return;
+            }
             this.blockActions();
           },
         });

@@ -1,5 +1,5 @@
 const Card = require("../../Card");
-const { PRIORITY_EFFECT_GIVER_DEFAULT } = require("../../const/Priority");
+const { PRIORITY_EFFECT_GIVER_EARLY } = require("../../const/Priority");
 
 module.exports = class MakeTargetsInLove extends Card {
   constructor(role) {
@@ -14,20 +14,21 @@ module.exports = class MakeTargetsInLove extends Card {
         multiMin: 2,
         multiMax: 2,
         action: {
-          priority: PRIORITY_EFFECT_GIVER_DEFAULT,
+          role: this.role,
+          priority: PRIORITY_EFFECT_GIVER_EARLY,
           run: function () {
             var targetA = this.target[0];
             var targetB = this.target[1];
 
             if (!targetA || !targetB) return;
 
-            targetA.giveEffect("InLoveWith", targetB);
-            this.queueGetEffectAlert("InLoveWith", targetA, targetB.name);
+            this.role.giveEffect(targetA, "Lovesick", targetB);
+            this.queueGetEffectAlert("Lovesick", targetA, targetB.name);
 
-            targetB.giveEffect("InLoveWith", targetA);
-            this.queueGetEffectAlert("InLoveWith", targetB, targetA.name);
+            this.role.giveEffect(targetB, "Lovesick", targetA);
+            this.queueGetEffectAlert("Lovesick", targetB, targetA.name);
 
-            this.actor.role.pairedLovers = [targetA, targetB];
+            this.role.pairedLovers = [targetA, targetB];
           },
         },
         shouldMeet() {

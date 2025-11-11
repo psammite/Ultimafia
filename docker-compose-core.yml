@@ -1,0 +1,52 @@
+services:
+  # Mongo service
+  mongodb:
+    image: mongo:8.0.11
+    container_name: mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PW}
+      MONGO_INITDB_DATABASE: ${MONGO_DB}
+    expose:
+      - 27017
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb:/data/db
+      - ./scripts/mongo:/scripts
+    networks:
+      - my_net
+
+  # Redis service
+  redis:
+    image: redis:8.0.3
+    container_name: redis
+    restart: unless-stopped
+    volumes:
+      - redis:/data
+    networks:
+      - my_net
+
+  # Backend service
+  backend:
+    depends_on:
+      - mongodb
+      - redis
+    container_name: "backend"
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: dockerfile
+    volumes:
+      - ./:/home/um/
+    networks:
+      - my_net
+
+volumes:
+  mongodb:
+  redis:
+
+networks:
+  my_net:
+    driver: bridge

@@ -1,53 +1,30 @@
-import React from "react";
-import { Route, Switch, Redirect } from "react-router-dom";
+import React, { useContext } from "react";
+import { Route, Routes, Navigate } from "react-router-dom";
+import { useTheme } from "@mui/material/styles";
+import { Box, Card, Link, AppBar, Toolbar } from "@mui/material";
 
 import Forums from "./Forums/Forums";
 import UserSearch from "./UserSearch";
 import Moderation from "./Moderation";
-import Contributors from "./Contributors";
-import Feedback from "./Feedback";
-import { SubNav } from "../../components/Nav";
+import { UserContext } from "../../Contexts";
 
 export default function Community() {
-  const links = [
-    {
-      text: "Forums",
-      path: `/community/forums`,
-    },
-    {
-      text: "Users",
-      path: `/community/users`,
-    },
-    {
-      text: "Moderation",
-      path: `/community/moderation`,
-    },
-    {
-      text: "Contributors",
-      path: `/community/contributors`,
-    },
-    {
-      text: "Feedback",
-      path: `/community/feedback`,
-    },
-  ];
+  const theme = useTheme();
+  const user = useContext(UserContext);
+  // Allow logged-out users to access Community page
 
   return (
     <>
-      <SubNav links={links} />
-      <div className="inner-content">
-        <Switch>
-          <Route path="/community/forums" render={() => <Forums />} />
-          <Route path="/community/users" render={() => <UserSearch />} />
-          <Route path="/community/moderation" render={() => <Moderation />} />
-          <Route
-            path="/community/contributors"
-            render={() => <Contributors />}
-          />
-          <Route path="/community/feedback" render={() => <Feedback />} />
-          <Route render={() => <Redirect to="/community/forums" />} />
-        </Switch>
-      </div>
+      <Box maxWidth="1080px" sx={{ mt: 1, flexGrow: 1 }}>
+        <Card sx={{ p: 1, textAlign: "justify" }}>
+          <Routes>
+            <Route path="forums/*" element={<Forums />} />
+            <Route path="users" element={<UserSearch />} />
+            <Route path="moderation" element={<Moderation />} />
+            <Route path="*" element={<Navigate to="forums" />} />
+          </Routes>
+        </Card>
+      </Box>
     </>
   );
 }

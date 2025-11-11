@@ -1,8 +1,11 @@
 const Item = require("../Item");
 
 module.exports = class Match extends Item {
-  constructor() {
+  constructor(options) {
     super("Match");
+
+    this.reusable = options?.reusable;
+
     this.cannotBeStolen = true;
     this.meetings = {
       "Light Match": {
@@ -20,15 +23,17 @@ module.exports = class Match extends Item {
               );
 
               for (let player of this.game.players) {
-                if (player.hasItem("Gasoline")) {
+                if (player.hasEffect("Gasoline")) {
                   if (player.alive && this.dominates(player))
                     player.kill("burn", this.actor, true);
 
-                  player.dropItem("Gasoline", true);
+                  player.removeEffect("Gasoline", true);
                 }
               }
 
-              this.item.drop();
+              if (!this.reusable) {
+                this.item.drop();
+              }
             }
           },
         },

@@ -1,34 +1,44 @@
 export const GameTypes = [
   "Mafia",
-  "Split Decision",
   "Resistance",
-  "One Night",
-  "Ghost",
   "Jotto",
   "Acrotopia",
   "Secret Dictator",
   "Wacky Words",
+  "Liars Dice",
+  "Texas Hold Em",
+  "Cheat",
+  "Battlesnakes",
+  "Connect Four",
+  "Dice Wars",
 ];
-export const Lobbies = ["Mafia", "Competitive", "Games", "Roleplay"];
+export const Lobbies = [
+  "Main",
+  "Sandbox",
+  "Competitive",
+  "Games",
+  "Survivor",
+  "Roleplay",
+];
 
 export const Alignments = {
-  Mafia: ["Village", "Mafia", "Cult", "Independent", "Hostile"],
-  "Split Decision": ["Blue", "Red", "Independent"],
+  Mafia: ["Village", "Mafia", "Cult", "Independent", "Event"],
   Resistance: ["Resistance", "Spies"],
-  "One Night": ["Village", "Werewolves", "Independent"],
-  Ghost: ["Town", "Ghost", "Host"],
   Jotto: ["Town"],
   Acrotopia: ["Town"],
   "Secret Dictator": ["Liberals", "Fascists"],
-  "Wacky Words": ["Town"],
+  "Wacky Words": ["Town", "Host"],
+  "Liars Dice": ["Liars", "Host"],
+  "Texas Hold Em": ["Town", "Host"],
+  Cheat: ["Town", "Host"],
+  Battlesnakes: ["Town", "Host"],
+  "Connect Four": ["Town"],
+  "Dice Wars": ["Army", "Host"],
 };
 
 export const GameStates = {
   Mafia: ["Day", "Night"],
-  "Split Decision": ["Initial Round", "Hostage Swap"],
   Resistance: ["Team Selection", "Team Approval", "Mission"],
-  "One Night": ["Day", "Night"],
-  Ghost: ["Night", "Give Clue", "Day", "Guess Word"],
   Jotto: ["Select Word", "Guess Word"],
   Acrotopia: ["Day", "Night"],
   "Secret Dictator": [
@@ -39,6 +49,12 @@ export const GameStates = {
     "Special Nomination",
   ],
   "Wacky Words": ["Day", "Night"],
+  "Liars Dice": ["Guess Dice"],
+  "Texas Hold Em": ["Place Bets", "Showdown"],
+  Cheat: ["Play Cards", "Call Lie"],
+  Battlesnakes: ["Day"],
+  "Connect Four": ["Turn"],
+  "Dice Wars": ["Play"],
 };
 
 export const RatingThresholds = {
@@ -46,6 +62,8 @@ export const RatingThresholds = {
   losses: {},
   abandons: {},
 };
+
+export const MaxModifiersPerRole = 3;
 
 export const RequiredTotalForStats = 1;
 
@@ -68,3 +86,5 @@ export const AlertFadeDuration = 500;
 
 // animal deck by ultimafia-bot ultimafia.com/deck/jWqL8KjS_
 export const PreferredDeckId = "jWqL8KjS_";
+
+export const minimumLoadingTime = 200;

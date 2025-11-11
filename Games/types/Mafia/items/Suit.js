@@ -1,17 +1,25 @@
 const Item = require("../Item");
 
 module.exports = class Suit extends Item {
-  constructor(type) {
+  constructor(options) {
     super("Suit");
-    this.type = type;
+    this.type = options?.type;
+    this.typeMods = options?.type.split(":")[1];
+    this.concealed = options?.concealed;
+    if (this.concealed) {
+      this.cannotBeSnooped = true;
+    }
     this.cannotBeStolen = true;
   }
 
   hold(player) {
-    player.role.appearance.death = this.type;
-    player.role.appearance.reveal = this.type;
-    player.role.appearance.investigate = this.type;
-    player.role.appearance.condemn = this.type;
+    let tempApp = {
+      death: this.type,
+      reveal: this.type,
+      investigate: this.type,
+      condemn: this.type,
+    };
+    player.role.editAppearance(tempApp);
     player.role.hideModifier = {
       death: true,
       reveal: true,

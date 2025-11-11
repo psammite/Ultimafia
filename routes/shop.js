@@ -13,7 +13,7 @@ const shopItems = [
     key: "textColors",
     price: 20,
     limit: 1,
-    onBuy: function () {},
+    onBuy: async function (userId) {},
   },
   {
     name: "Profile Customization",
@@ -21,7 +21,7 @@ const shopItems = [
     key: "customProfile",
     price: 20,
     limit: 1,
-    onBuy: function () {},
+    onBuy: async function (userId) {},
   },
   {
     name: "Name Change",
@@ -29,7 +29,7 @@ const shopItems = [
     key: "nameChange",
     price: 20,
     limit: null,
-    onBuy: function () {},
+    onBuy: async function (userId) {},
   },
   {
     name: "3 Character Username",
@@ -40,7 +40,7 @@ const shopItems = [
     propagateItemUpdates: {
       nameChange: 1,
     },
-    onBuy: function () {},
+    onBuy: async function (userId) {},
   },
   {
     name: "2 Character Username",
@@ -51,7 +51,7 @@ const shopItems = [
     propagateItemUpdates: {
       nameChange: 1,
     },
-    onBuy: function () {},
+    onBuy: async function (userId) {},
   },
   {
     name: "1 Character Username",
@@ -62,7 +62,7 @@ const shopItems = [
     propagateItemUpdates: {
       nameChange: 1,
     },
-    onBuy: function () {},
+    onBuy: async function (userId) {},
   },
   {
     name: "Custom Death Message",
@@ -73,7 +73,7 @@ const shopItems = [
     propagateItemUpdates: {
       deathMessageChange: 2,
     },
-    onBuy: function () {},
+    onBuy: async function (userId) {},
   },
   {
     name: "Death Message Change",
@@ -81,15 +81,96 @@ const shopItems = [
     key: "deathMessageChange",
     price: 10,
     disableOn: (user) => !user.itemsOwned.deathMessageEnabled,
-    onBuy: function () {},
+    onBuy: async function (userId) {},
   },
   {
     name: "Anonymous Deck",
-    desc: "Create name decks for anonymous games. More Add-ons to come.",
+    desc: "Create name decks for anonymous games.",
     key: "anonymousDeck",
     price: 70,
     limit: constants.maxOwnedAnonymousDecks,
-    onBuy: function () {},
+    onBuy: async function (userId) {},
+  },
+  {
+    name: "Custom Emotes",
+    desc: "Create custom emotes that you can use in game.",
+    key: "customEmotes",
+    price: 5,
+    limit: constants.maxOwnedCustomEmotes,
+    onBuy: async function (userId) {},
+  },
+  {
+    name: "MORE Custom Emotes",
+    desc: "Once you've bought all of the cheaper ones, get more custom emotes here.",
+    key: "customEmotesExtra",
+    price: 25,
+    limit: constants.maxOwnedCustomEmotesExtra,
+    onBuy: async function (userId) {},
+  },
+  {
+    name: "Archived Games",
+    desc: "Gain the ability to archive games and have them displayed on your profile!",
+    key: "archivedGames",
+    price: 100,
+    limit: 1,
+    propagateItemUpdates: {
+      archivedGamesMax: 5,
+    },
+    onBuy: async function (userId) {},
+  },
+  {
+    name: "Maximum Archived Games",
+    desc: "Increases the amount of games that you can archive.",
+    key: "archivedGamesMax",
+    price: 30,
+    limit: constants.maxArchivedGamesMax,
+    onBuy: async function (userId) {},
+  },
+  {
+    name: "Bonus Red Heart Capacity",
+    desc: "Increases the amount of red hearts that you can hold.",
+    key: "bonusRedHearts",
+    price: 10,
+    limit: constants.maxBonusRedHearts,
+    onBuy: async function (userId) {
+      // Immediately give the user their red heart
+      await models.User.updateOne(
+        { id: userId },
+        { $inc: { redHearts: 1 } }
+      ).exec();
+    },
+  },
+  {
+    name: "Square",
+    desc: "Unlock the ability to become a square (currently profile only)",
+    key: "avatarShape",
+    price: 20,
+    limit: 1,
+    onBuy: async function (userId) {},
+  },
+  {
+    name: "Vanity URL",
+    desc: "Set a custom URL for your profile (1-20 characters)",
+    key: "vanityUrl",
+    price: 100,
+    limit: 1,
+    onBuy: async function (userId) {},
+  },
+  {
+    name: "Custom Site Primary Color",
+    desc: "Change the primary color of the site to whatever you'd like",
+    key: "customPrimaryColor",
+    price: 100,
+    limit: 1,
+    onBuy: async function (userId) {},
+  },
+  {
+    name: "Icon Filter",
+    desc: "Unlock the ability to apply a filter to all icons on the site",
+    key: "iconFilter",
+    price: 40,
+    limit: 1,
+    onBuy: async function (userId) {},
   },
 ];
 
@@ -117,57 +198,111 @@ router.get("/info", async function (req, res) {
   }
 });
 
-router.post("/spendCoins", async function (req, res) {
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var itemIndex = Number(req.body.item);
-    if (itemIndex < 0 || itemIndex >= shopItems.length) {
-      res.status(500);
-      res.send("Invalid item purchased.");
-      return;
-    }
-    var item = shopItems[itemIndex];
-
-    var user = await models.User.findOne({ id: userId }).select(
-      "coins itemsOwned"
-    );
-
-    if (user.coins < item.price) {
-      res.status(500);
-      res.send("You do not have enough coins to purchase this.");
-      return;
-    }
-
-    if (item.limit != null && user.itemsOwned[item.key] >= item.limit) {
-      res.status(500);
-      res.send("You already own this.");
-      return;
-    }
-
-    let userChanges = {
-      [`itemsOwned.${item.key}`]: 1,
-      coins: -1 * item.price,
-    };
-
-    for (let k in item.propagateItemUpdates) {
-      let change = item.propagateItemUpdates[k];
-      userChanges[`itemsOwned.${k}`] = change;
-    }
-
-    await models.User.updateOne(
-      { id: userId },
-      {
-        $inc: userChanges,
+router.post(
+  "/spendCoins",
+  async function (req, res) {
+    try {
+      var userId = await routeUtils.verifyLoggedIn(req);
+      var itemIndex = Number(req.body.item);
+      if (itemIndex < 0 || itemIndex >= shopItems.length) {
+        res.status(500);
+        res.send("Invalid item purchased.");
+        return;
       }
-    ).exec();
+      var item = shopItems[itemIndex];
 
-    await redis.cacheUserInfo(userId, true);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error spending coins.");
-  }
-});
+      var user = await models.User.findOne({ id: userId }).select(
+        "coins itemsOwned"
+      );
+
+      if (user.coins < item.price) {
+        res.status(500);
+        res.send("You do not have enough coins to purchase this.");
+        return;
+      }
+
+      if (item.limit != null && user.itemsOwned[item.key] >= item.limit) {
+        res.status(500);
+        res.send("You already own this.");
+        return;
+      }
+
+      let userChanges = {
+        [`itemsOwned.${item.key}`]: 1,
+        coins: -1 * item.price,
+      };
+
+      for (let k in item.propagateItemUpdates) {
+        let change = item.propagateItemUpdates[k];
+        userChanges[`itemsOwned.${k}`] = change;
+      }
+
+      await models.User.updateOne(
+        { id: userId },
+        {
+          $inc: userChanges,
+        }
+      ).exec();
+
+      await item.onBuy(userId);
+
+      await redis.cacheUserInfo(userId, true);
+
+      res.sendStatus(200);
+    } catch (e) {
+      logger.error(e);
+      res.status(500);
+      res.send("Error spending coins.");
+    }
+  },
+
+  router.post("/transferCoins", async function (req, res) {
+    try {
+      const senderId = await routeUtils.verifyLoggedIn(req);
+      const { recipientUsername, amount } = req.body;
+
+      const transferAmount = Number(amount);
+
+      if (!recipientUsername || isNaN(transferAmount) || transferAmount <= 0) {
+        res.status(400).send("Invalid transfer data.");
+        return;
+      }
+
+      const sender = await models.User.findOne({ id: senderId }).select(
+        "coins"
+      );
+      const recipient = await models.User.findOne({
+        name: recipientUsername,
+      }).select("coins");
+
+      if (!recipient) {
+        res.status(404).send("Recipient not found.");
+        return;
+      }
+
+      if (sender.coins < transferAmount) {
+        res.status(400).send("Insufficient balance.");
+        return;
+      }
+
+      await models.User.updateOne(
+        { id: senderId },
+        { $inc: { coins: -transferAmount } }
+      ).exec();
+      await models.User.updateOne(
+        { name: recipientUsername },
+        { $inc: { coins: transferAmount } }
+      ).exec();
+
+      await redis.cacheUserInfo(senderId, true);
+      await redis.cacheUserInfo(recipient.id, true);
+
+      res.sendStatus(200);
+    } catch (e) {
+      logger.error(e);
+      res.status(500).send("Error transferring coins.");
+    }
+  })
+);
 
 module.exports = router;

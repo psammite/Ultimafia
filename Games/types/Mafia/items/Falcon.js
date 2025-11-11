@@ -1,29 +1,32 @@
 const Item = require("../Item");
+const Random = require("../../../../lib/Random");
 const { PRIORITY_INVESTIGATIVE_DEFAULT } = require("../const/Priority");
 
 module.exports = class Falcon extends Item {
   constructor(options) {
     super("Falcon");
 
+    this.magicCult = options?.magicCult;
+    this.broken = options?.broken;
+
     this.meetings = {
       "Track with Falcon": {
         states: ["Night"],
         flags: ["voting"],
+        item: this,
         action: {
           labels: ["hidden", "absolute"],
           priority: PRIORITY_INVESTIGATIVE_DEFAULT,
           item: this,
           run: function () {
-            let visits = this.getVisits(this.target);
-            let visitNames = visits.map((p) => p.name);
-
-            if (visitNames.length == 0) visitNames.push("no one");
-
-            this.actor.queueAlert(
-              `:track: Your falcon returns and tells you that ${
-                this.target.name
-              } visited ${visitNames.join(", ")} during the night.`
+            let info = this.game.createInformation(
+              "trackerInfo",
+              this.actor,
+              this.game,
+              this.target
             );
+            info.processInfoItem(this.item);
+            this.actor.queueAlert(`:track: ${info.getInfoFormated()}`);
             this.item.drop();
           },
         },

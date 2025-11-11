@@ -2,10 +2,12 @@ const express = require("express");
 const constants = require("../data/constants");
 const models = require("../db/models");
 const routeUtils = require("./utils");
+const utils = require("../lib/Utils");
 const redis = require("../modules/redis");
 const gameLoadBalancer = require("../modules/gameLoadBalancer");
 const logger = require("../modules/logging")(".");
 const router = express.Router();
+const axios = require("axios");
 
 router.post("/leave", async function (req, res) {
   try {
@@ -28,6 +30,74 @@ router.post("/leave", async function (req, res) {
   }
 });
 
+router.get("/mostPlayedRecently", async (req, res) => {
+  try {
+    const maxSetups = 5;
+    const daysInterval = 7;
+
+    const { lobby = "All" } = req.query;
+
+    const matchfilter = {
+      broken: { $exists: false },
+      endTime: {
+        $gt:
+          new Date(new Date().setHours(0, 0, 0, 0)).getTime() -
+          daysInterval * 24 * 60 * 60 * 1000,
+      },
+    };
+
+    if (lobby && lobby !== "All") {
+      matchfilter["lobby"] = lobby;
+    }
+
+    const games = await models.Game.aggregate([
+      { $match: matchfilter },
+      { $group: { _id: "$setup", count: { $sum: 1 } } },
+      {
+        $lookup: {
+          from: "setups",
+          localField: "_id",
+          foreignField: "_id",
+          as: "setupDetails",
+        },
+      },
+      { $unwind: "$setupDetails" },
+      { $sort: { count: -1, _id: 1 } },
+      { $limit: maxSetups },
+      {
+        $lookup: {
+          from: "games",
+          pipeline: [
+            {
+              $match: {
+                broken: { $exists: false },
+                endTime: {
+                  $gt:
+                    new Date(new Date().setHours(0, 0, 0, 0)).getTime() -
+                    daysInterval * 24 * 60 * 60 * 1000,
+                },
+              },
+            },
+            { $count: "totalCount" },
+          ],
+          as: "total",
+        },
+      },
+      { $unwind: "$total" },
+      {
+        $addFields: {
+          percentage: { $divide: ["$count", "$total.totalCount"] },
+        },
+      },
+      { $project: { _id: 1, count: 1, percentage: 1, setupDetails: 1 } },
+    ]);
+    res.json(games);
+  } catch (err) {
+    logger.error(err);
+    res.status(500).end();
+  }
+});
+
 router.get("/list", async function (req, res) {
   res.setHeader("Content-Type", "application/json");
   try {
@@ -35,7 +105,7 @@ router.get("/list", async function (req, res) {
     var start = ((Number(req.query.page) || 1) - 1) * constants.lobbyPageSize;
     var listName = String(req.query.list).toLowerCase();
     var lobby = String(req.query.lobby || "All");
-    var last = Number(req.query.last) || Infinity;
+    var last = Number(req.query.last);
     var first = Number(req.query.first);
     var games = [];
 
@@ -64,9 +134,6 @@ router.get("/list", async function (req, res) {
       games = games.concat(inProgressGames);
     }
 
-    if (lobby == "Main") {
-      lobby = "Mafia";
-    }
     if (lobby != "All") games = games.filter((game) => game.lobby == lobby);
 
     games = games.slice(start, end);
@@ -80,21 +147,26 @@ router.get("/list", async function (req, res) {
       newGame.setup = await models.Setup.findOne({
         id: game.settings.setup,
       }).select(
-        "id gameType name roles closed useRoleGroups roleGroupSizes count total -_id"
+        "id gameType name roles closed gameSettings useRoleGroups roleGroupSizes count total -_id"
       );
       newGame.setup = newGame.setup.toJSON();
       newGame.hostId = game.hostId;
       newGame.players = game.players.length;
+      newGame.spectatorCount = game.spectatorCount;
+      newGame.gameState = game.gameState;
+      newGame.winnersInfo = game.winnersInfo;
+      newGame.spectatorCount = game.spectatorCount;
+      newGame.lobbyName = game.settings.lobbyName;
       newGame.ranked = game.settings.ranked;
       newGame.competitive = game.settings.competitive;
       newGame.spectating = game.settings.spectating;
-      newGame.voiceChat = game.settings.voiceChat;
       newGame.scheduled = game.settings.scheduled;
       newGame.readyCheck = game.settings.readyCheck;
       newGame.noVeg = game.settings.noVeg;
       newGame.anonymousGame = game.settings.anonymousGame;
       newGame.anonymousDeck = game.settings.anonymousDeck;
       newGame.status = game.status;
+      newGame.lobby = game.lobby;
       newGame.endTime = 0;
 
       if (userId) {
@@ -116,13 +188,12 @@ router.get("/list", async function (req, res) {
         "endTime",
         last,
         first,
-        "id type setup anonymousGame anonymousDeck ranked competitive private spectating guests voiceChat readyCheck noVeg stateLengths gameTypeOptions broken endTime -_id",
+        "id type setup lobby lobbyName anonymousGame anonymousDeck ranked competitive private spectating guests readyCheck noVeg stateLengths gameTypeOptions broken winnersInfo playerIdMap playerAlignmentMap endTime -_id",
         constants.lobbyPageSize - games.length,
         [
           "setup",
           "id gameType name roles closed useRoleGroups roleGroupSizes count total -_id",
-        ],
-        ["anonymousDeck", "id name disabled profiles -_id"]
+        ]
       );
       finishedGames = finishedGames.map((game) => ({
         ...game.toJSON(),
@@ -145,6 +216,9 @@ router.get("/:id/connect", async function (req, res) {
     var userId = await routeUtils.verifyLoggedIn(req, true);
     var game = await redis.getGameInfo(gameId, true);
 
+    const now = Date.now();
+    const isSpectating = req.query.spectate === "true";
+
     if (!game) {
       res.status(500);
       res.send("Game not found.");
@@ -155,6 +229,43 @@ router.get("/:id/connect", async function (req, res) {
       res.status(500);
       res.send("You must be logged in to join or spectate games.");
       return;
+    }
+
+    if (userId && game.settings.ranked && !isSpectating) {
+      const user = await redis.getUserInfo(userId);
+
+      if (!user || user.gamesPlayed < constants.minimumGamesForRanked) {
+        res.status(400);
+        res.send(
+          `You cannot play ranked games until you've played ${constants.minimumGamesForRanked} games.`
+        );
+        return;
+      }
+
+      if (!user || user.redHearts <= 0) {
+        res.status(400);
+        res.send(
+          "You cannot play ranked games because your Red Hearts are depleted."
+        );
+        return;
+      }
+    }
+
+    if (userId && !isSpectating) {
+      const leavePentalty = await models.LeavePenalty.findOne({
+        userId: userId,
+      }).select("canPlayAfter");
+
+      if (leavePentalty && now < leavePentalty.canPlayAfter) {
+        const minutesUntilCanPlayAgain = Math.trunc(
+          (leavePentalty.canPlayAfter - now) / 60000
+        );
+        res.status(400);
+        res.send(
+          `You are unable to play games for another ${minutesUntilCanPlayAgain} minutes due to leaving game(s).`
+        );
+        return;
+      }
     }
 
     if (userId && !(await routeUtils.verifyPermission(userId, "playGame"))) {
@@ -182,7 +293,7 @@ router.get("/:id/connect", async function (req, res) {
     ) {
       res.status(500);
       res.send(
-        "You have not been approved for competitive games. Please see the thread on the Forums."
+        "You have not been approved for competitive games. Please message an admin for assistance."
       );
       return;
     }
@@ -191,7 +302,8 @@ router.get("/:id/connect", async function (req, res) {
     var port = game.port;
     var token = userId && (await redis.createAuthToken(userId));
 
-    if (type && !isNaN(port)) res.send({ port, type, token });
+    if (type && !isNaN(port))
+      res.send({ port, type, token, hostId: game.hostId });
     else {
       res.status(500);
       res.send("Error loading game.");
@@ -213,40 +325,65 @@ router.get("/:id/review/data", async function (req, res) {
     let game = await models.Game.findOne({ id: gameId })
       .select("-_id")
       .populate("setup", "-_id")
-      .populate("users", "id avatar tag settings emojis -_id")
-      .populate("anonymousDeck", "-_id -__v -creator");
+      .populate({
+        path: "users",
+        select: "id avatar tag settings customEmotes -_id",
+        populate: [
+          {
+            path: "customEmotes",
+            model: "CustomEmote",
+            select: "id extension name -_id",
+          },
+        ],
+      });
 
     if (!game || !userId) {
       res.status(500);
       res.send("Game not found");
     }
 
-    game = game.toJSON();
-    game.users = game.users.map((user) => ({
-      ...user,
-      settings: {
-        textColor: user.settings.textColor,
-        nameColor: user.settings.textColor,
-      },
-    }));
+    if (game !== null) {
+      game = game.toJSON();
+      game.users = await Promise.all(
+        game.users.map(async (user) => {
+          // Get vanity URL for each user
+          const vanityUrl = await models.VanityUrl.findOne({
+            userId: user.id,
+          }).select("url -_id");
 
-    function userIsInGame() {
+          return {
+            ...user,
+            settings: {
+              textColor: user.settings.textColor,
+              nameColor: user.settings.textColor,
+            },
+            vanityUrl: vanityUrl?.url,
+          };
+        })
+      );
+
       for (let user of game.users) {
-        if (user.id == userId) {
-          return true;
-        }
+        utils.remapCustomEmotes(user, user.id);
       }
-      return false;
-    }
-    if (
-      !game.private ||
-      (await routeUtils.verifyPermission(userId, perm)) ||
-      userIsInGame()
-    ) {
-      res.send(game);
-    } else {
-      res.status(500);
-      res.send("Game not found");
+
+      function userIsInGame() {
+        for (let user of game.users) {
+          if (user.id == userId) {
+            return true;
+          }
+        }
+        return false;
+      }
+      if (
+        !game.private ||
+        (await routeUtils.verifyPermission(userId, perm)) ||
+        userIsInGame()
+      ) {
+        res.send(game);
+      } else {
+        res.status(500);
+        res.send("Game not found");
+      }
     }
   } catch (e) {
     logger.error(e);
@@ -264,10 +401,9 @@ router.get("/:id/info", async function (req, res) {
     if (!game) {
       game = await models.Game.findOne({ id: gameId })
         .select(
-          "type users players left stateLengths ranked competitive anonymousGame anonymousDeck spectating guests voiceChat readyCheck noVeg startTime endTime gameTypeOptions -_id"
+          "type users players left stateLengths lobbyName ranked competitive anonymousGame anonymousDeck spectating guests readyCheck noVeg startTime endTime gameTypeOptions winners winnersInfo kudosReceiver playerIdMap playerAlignmentMap -_id"
         )
-        .populate("users", "id name avatar -_id")
-        .populate("anonymousDeck", "-_id -__v -creator");
+        .populate("users", "id name avatar -_id");
 
       if (!game) {
         res.status(500);
@@ -288,7 +424,6 @@ router.get("/:id/info", async function (req, res) {
         anonymousGame: game.anonymousGame,
         anonymousDeck: game.anonymousDeck,
         guests: game.guests,
-        voiceChat: game.voiceChat,
         readyCheck: game.readyCheck,
         noVeg: game.noVeg,
         stateLengths: game.stateLengths,
@@ -331,8 +466,11 @@ router.post("/host", async function (req, res) {
 
     var gameType = String(req.body.gameType);
     var lobby = String(req.body.lobby);
+    var lobbyName = req.body.lobbyName ? String(req.body.lobbyName) : null;
     var rehostId = req.body.rehost && String(req.body.rehost);
     var scheduled = Number(req.body.scheduled);
+
+    const now = Date.now();
 
     if (
       !routeUtils.validProp(gameType) ||
@@ -415,6 +553,12 @@ router.post("/host", async function (req, res) {
       return;
     }
 
+    if (req.body.ranked && req.body.competitive) {
+      res.status(500);
+      res.send("You cannot host a game that is both ranked and competitive.");
+      return;
+    }
+
     if (req.body.ranked && req.body.private) {
       res.status(500);
       res.send("Ranked games cannot be private.");
@@ -427,21 +571,15 @@ router.post("/host", async function (req, res) {
       return;
     }
 
-    if (req.body.ranked && req.body.spectating) {
+    if (req.body.competitive && req.body.private) {
       res.status(500);
-      res.send("Ranked games cannot be spectated.");
+      res.send("Competitive games cannot be private.");
       return;
     }
 
-    if (req.body.ranked && req.body.voiceChat) {
+    if (req.body.competitive && req.body.guests) {
       res.status(500);
-      res.send("Ranked games cannot use voice chat.");
-      return;
-    }
-
-    if (req.body.voiceChat && req.body.spectating) {
-      res.status(500);
-      res.send("Voice chat games cannot be spectated.");
+      res.send("Competitive games cannot contain guests.");
       return;
     }
 
@@ -467,6 +605,41 @@ router.post("/host", async function (req, res) {
       return;
     }
 
+    const user = await redis.getUserInfo(userId);
+    if (req.body.ranked) {
+      if (user && user.gamesPlayed <= constants.minimumGamesForRanked) {
+        res.status(400);
+        res.send(
+          `You cannot play ranked games until you've played ${constants.minimumGamesForRanked} games.`
+        );
+        return;
+      }
+
+      if (user && user.redHearts <= 0) {
+        res.status(400);
+        res.send(
+          "You cannot play ranked games because your Red Hearts are depleted."
+        );
+        return;
+      }
+    }
+
+    const leavePentalty = await models.LeavePenalty.findOne({
+      userId: userId,
+    }).select("canPlayAfter");
+    if (leavePentalty) {
+      if (now < leavePentalty.canPlayAfter) {
+        const minutesUntilCanPlayAgain = Math.trunc(
+          (leavePentalty.canPlayAfter - now) / 60000
+        );
+        res.status(400);
+        res.send(
+          `You are unable to play games for another ${minutesUntilCanPlayAgain} minutes due to leaving game(s).`
+        );
+        return;
+      }
+    }
+
     var settings = settingsChecks[gameType](req.body, setup);
     settings.anonymousGame = Boolean(req.body.anonymousGame);
     settings.anonymousDeckId = String(req.body.anonymousDeckId);
@@ -478,53 +651,49 @@ router.post("/host", async function (req, res) {
     }
 
     if (settings.anonymousGame) {
-      let deck = await models.AnonymousDeck.findOne({
-        id: settings.anonymousDeckId,
-      }).select("id name disabled profiles");
-      if (!deck) {
-        res.status(500);
-        res.send("Unable to find anonymous deck.");
-        return;
-      }
-
-      deck = deck.toJSON();
-
-      if (deck.disabled) {
-        res.status(500);
-        res.send("This deck has been disabled by a moderator.");
-        return;
-      }
-      let profileError = false;
-      let deckProfiles = await models.DeckProfile.find(
-        { _id: { $in: deck.profiles } },
-        function (err, profiles) {
-          if (err) {
-            profileError = true;
-            return;
-          }
+      let decks = [];
+      for (let item of settings.anonymousDeckId.split(",")) {
+        let deck = await models.AnonymousDeck.findOne({
+          id: item.trim(),
+        }).select("id name disabled profiles");
+        if (!deck) {
+          res.status(500);
+          res.send("Unable to find anonymous deck.");
+          return;
         }
-      ).select("name avatar id deathMessage color");
 
-      if (profileError) {
-        res.status(500);
-        res.send("Unable to find profiles.");
-        return;
+        deck = deck.toJSON();
+
+        if (deck.disabled) {
+          res.status(500);
+          res.send("This deck has been disabled by a moderator.");
+          return;
+        }
+        let deckProfiles = await models.DeckProfile.find({
+          _id: { $in: deck.profiles },
+        }).select("name avatar id deathMessage color");
+
+        if (!deckProfiles) {
+          res.status(500);
+          res.send("Unable to find profiles.");
+          return;
+        }
+
+        if (deckProfiles.length < setup.total) {
+          res.status(500);
+          res.send("This deck is too small for the chosen setup.");
+          return;
+        }
+        let jsonProfiles = [];
+        for (let profile of deckProfiles) {
+          profile = profile.toJSON();
+          jsonProfiles.push(profile);
+        }
+        deck.profiles = jsonProfiles;
+        decks.push(deck);
       }
 
-      if (deckProfiles.length < setup.total) {
-        res.status(500);
-        res.send("This deck is too small for the chosen setup.");
-        return;
-      }
-
-      let jsonProfiles = [];
-      for (let profile of deckProfiles) {
-        profile = profile.toJSON();
-        jsonProfiles.push(profile);
-      }
-
-      settings.anonymousDeck = deck;
-      settings.anonymousDeck.profiles = jsonProfiles;
+      settings.anonymousDeck = decks;
     }
 
     var lobbyCheck = lobbyChecks[lobby](gameType, req.body, setup);
@@ -578,17 +747,21 @@ router.post("/host", async function (req, res) {
       return;
     }
 
+    if (!lobbyName || lobbyName === "" || lobbyName === "undefined") {
+      lobbyName = `${user.name}'s lobby`;
+    }
+    lobbyName = lobbyName.substring(0, 50);
+
     try {
       var gameId = await gameLoadBalancer.createGame(userId, gameType, {
         setup: setup,
         lobby: lobby,
+        lobbyName: lobbyName,
         private: Boolean(req.body.private),
         guests: Boolean(req.body.guests),
         ranked: Boolean(req.body.ranked),
         competitive: Boolean(req.body.competitive),
         spectating: Boolean(req.body.spectating),
-        // voiceChat: Boolean(req.body.voiceChat),
-        voiceChat: false,
         rehostId: rehostId,
         scheduled: scheduled,
         readyCheck: Boolean(req.body.readyCheck),
@@ -599,6 +772,32 @@ router.post("/host", async function (req, res) {
 
       res.send(gameId);
       redis.unsetCreatingGame(userId);
+      let ping;
+      if (gameType !== "Mafia") {
+        ping = "<@&1118235252784111666>\n";
+      } else if (req.body.competitive) {
+        ping = "<@&1180218020069650433>\n";
+      } else if (req.body.ranked) {
+        ping = "<@&1118005995579379823>\n";
+      } else {
+        ping = "<@&1118006284462063666>\n";
+      }
+      if (!req.body.private) {
+        if (process.env.DISCORD_GAME_HOOK) {
+          try {
+            await axios({
+              method: "POST",
+              url: process.env.DISCORD_GAME_HOOK,
+              data: {
+                content: `New game! https://ultimafia.com/game/${gameId}\n${ping}${setup.name}`,
+                username: "GameBot",
+              },
+            });
+          } catch (e) {
+            console.log("error: ", e);
+          }
+        }
+      }
     } catch (e) {
       redis.unsetCreatingGame(userId);
       throw e;
@@ -685,6 +884,96 @@ router.post("/unreserve", async function (req, res) {
   }
 });
 
+router.post("/:id/archive", async function (req, res) {
+  try {
+    var userId = await routeUtils.verifyLoggedIn(req);
+    var gameId = String(req.params.id);
+
+    var user = await models.User.findOne({ id: userId, deleted: false }).select(
+      "itemsOwned _id"
+    );
+    user = user.toJSON();
+
+    var itemsOwned = await redis.getUserItemsOwned(userId);
+
+    if (!itemsOwned.archivedGames) {
+      res.status(500);
+      res.send("You must purchase archived games from the Shop.");
+      return;
+    }
+
+    var archivedGames = await models.ArchivedGame.find({
+      user: user._id,
+    }).select("user game");
+    if (archivedGames.length >= itemsOwned.archivedGamesMax) {
+      res.status(500);
+      res.send("You must purchase additional archived games from the Shop.");
+      return;
+    }
+
+    var game = await models.Game.findOne({ id: gameId })
+      .select("type setup startTime _id")
+      .populate("setup", "name -_id");
+
+    if (!game) {
+      res.status(500);
+      res.send("Game not found");
+      return;
+    }
+
+    if (
+      archivedGames
+        .map((item) => item.game.toString())
+        .includes(game._id.toString())
+    ) {
+      res.status(500);
+      res.send("You've already archived this game.");
+      return;
+    }
+
+    var descriptionDate = new Date(game.startTime).toDateString();
+
+    var archivedGame = new models.ArchivedGame({
+      user: user._id,
+      game: game._id,
+      description: `${game.type} ${game.setup.name} ${descriptionDate}`,
+    });
+    await archivedGame.save();
+
+    res.send("Successfully archived game.");
+  } catch (e) {
+    logger.error(e);
+    res.status(500);
+    res.send("Error archiving game.");
+  }
+});
+
+router.delete("/:id/archive", async function (req, res) {
+  try {
+    var userId = await routeUtils.verifyLoggedIn(req);
+    var gameId = String(req.params.id);
+
+    var user = await models.User.findOne({ id: userId }).select("_id");
+    var game = await models.Game.findOne({ id: gameId }).select("_id");
+
+    var status = await models.ArchivedGame.deleteOne({
+      user: user._id,
+      game: game._id,
+    });
+
+    if (status.deletedCount > 0) {
+      res.send("Successfully unarchived game.");
+      return;
+    } else {
+      return;
+    }
+  } catch (e) {
+    logger.error(e);
+    res.status(500);
+    res.send("Error deleting archived game.");
+  }
+});
+
 router.post("/cancel", async function (req, res) {
   try {
     var userId = await routeUtils.verifyLoggedIn(req);
@@ -720,18 +1009,18 @@ router.post("/cancel", async function (req, res) {
 });
 
 const lobbyChecks = {
-  Mafia: (gameType, setup, settings) => {
-    if (gameType != "Mafia") return "Only Mafia is allowed in the Mafia lobby.";
+  Main: (gameType, setup, settings) => {
+    if (gameType != "Mafia") return "Only Mafia is allowed in the Main lobby.";
 
-    if (setup.comp)
-      return "Competitive games are not allowed in the Mafia lobby.";
+    if (setup.competitive)
+      return "Competitive games are not allowed in the Main lobby.";
   },
-  //Sandbox: (gameType, setup, settings) => {
-  //  if (setup.ranked) return "Ranked games are not allowed in Sandbox lobby.";
+  Sandbox: (gameType, setup, settings) => {
+    if (setup.ranked) return "Ranked games are not allowed in Sandbox lobby.";
 
-  //  if (setup.comp)
-  //    return "Competitive games are not allowed in Sandbox lobby.";
-  //},
+    if (setup.competitive)
+      return "Competitive games are not allowed in Sandbox lobby.";
+  },
   Competitive: (gameType, setup, settings) => {
     if (gameType != "Mafia")
       return "Only Mafia is allowed in Competitive lobby.";
@@ -746,6 +1035,12 @@ const lobbyChecks = {
     if (gameType == "Mafia")
       return "Only games other than Mafia are allowed in Games lobby.";
   },
+  Survivor: (gameType, setup, settings) => {
+    if (setup.ranked) return "Ranked games are not allowed in Survivor lobby.";
+
+    if (setup.competitive)
+      return "Competitive games are not allowed in Survivor lobby.";
+  },
   Roleplay: (gameType, setup, settings) => {
     if (!setup.anonymousGame)
       return "Only Anonymous games are allowed in Roleplay lobby.";
@@ -755,7 +1050,7 @@ const lobbyChecks = {
 const settingsChecks = {
   Mafia: (settings, setup) => {
     var extendLength = Number(settings.extendLength);
-    if (extendLength < 1 || extendLength > 5)
+    if (extendLength < 0 || extendLength > 5)
       return "Extension length must be between 1 and 5 minutes.";
 
     var pregameWaitLength = Number(settings.pregameWaitLength);
@@ -763,57 +1058,12 @@ const settingsChecks = {
       return "Pregame wait length must be between 1 and 6 hours.";
     }
 
-    var broadcastClosedRoles = Boolean(settings.broadcastClosedRoles);
+    var advancedHosting = Boolean(settings.advancedHosting);
 
-    return { extendLength, pregameWaitLength, broadcastClosedRoles };
-  },
-  "Split Decision": (settings, setup) => {
-    return {};
+    return { extendLength, pregameWaitLength, advancedHosting };
   },
   Resistance: (settings, setup) => {
     return {};
-  },
-  "One Night": (settings, setup) => {
-    return {};
-  },
-  Ghost: (settings, setup) => {
-    // default: configureWords is false
-    let wordOptions = settings.wordOptions;
-    let configureWords = wordOptions?.configureWords;
-
-    if (!configureWords) {
-      return { configureWords };
-    }
-
-    // configure custom words
-    let wordLength = Number(wordOptions.wordLength);
-    if (wordLength < 3 || wordLength > 10) {
-      return "Please choose a word from 3 to 10 letters long.";
-    }
-
-    let roles = JSON.parse(setup.roles)[0];
-    let hasHostInGame = roles["Host:"];
-    if (!hasHostInGame)
-      return "You can only configure words when the setup has the Host role added";
-
-    let townWord = wordOptions.townWord?.toLowerCase();
-    if (!townWord) return "Town word is not specified";
-    if (townWord.length !== wordLength)
-      return "Town word length must be equal to the word size specified";
-    if (!/^[a-zA-Z]+$/.test(townWord)) return "Town word must be alphabetic";
-
-    let hasFoolInGame = roles["Fool:"];
-    if (!hasFoolInGame) return { configureWords, wordLength, townWord };
-
-    let foolWord = wordOptions.foolWord?.toLowerCase();
-    if (!foolWord) return "Fool word is not specified";
-    if (foolWord.length !== wordLength)
-      return "Fool word length must be equal to the word size specified";
-    if (!/^[a-zA-Z]+$/.test(foolWord)) return "Fool word must be alphabetic";
-    if (townWord == foolWord)
-      return "Fool word cannot be the same as the town word";
-
-    return { configureWords, wordLength, townWord, foolWord };
   },
   Jotto: (settings, setup) => {
     let wordLength = Number(settings.wordLength);
@@ -859,10 +1109,77 @@ const settingsChecks = {
   },
   "Wacky Words": (settings, setup) => {
     let roundAmt = settings.roundAmt;
+    let acronymSize = settings.acronymSize;
+    let enablePunctuation = settings.enablePunctuation;
+    let standardiseCapitalisation = settings.standardiseCapitalisation;
+    let turnOnCaps = settings.turnOnCaps;
+    let isRankedChoice = settings.isRankedChoice;
+    let votesToPoints = settings.votesToPoints;
 
     return {
       roundAmt,
+      acronymSize,
+      enablePunctuation,
+      standardiseCapitalisation,
+      turnOnCaps,
+      isRankedChoice,
+      votesToPoints,
     };
+  },
+  "Liars Dice": (settings, setup) => {
+    let wildOnes = settings.wildOnes;
+    let spotOn = settings.spotOn;
+    let startingDice = settings.startingDice;
+
+    return {
+      wildOnes,
+      spotOn,
+      startingDice,
+    };
+  },
+  "Texas Hold Em": (settings, setup) => {
+    let minimumBet = settings.minimumBet;
+    let startingChips = settings.startingChips;
+    let MaxRounds = settings.MaxRounds;
+
+    return {
+      minimumBet,
+      startingChips,
+      MaxRounds,
+    };
+  },
+  Cheat: (settings, setup) => {
+    let MaxRounds = settings.MaxRounds;
+
+    return {
+      MaxRounds,
+    };
+  },
+  Battlesnakes: (settings, setup) => {
+    const boardSize = settings.boardSize;
+
+    return {
+      boardSize,
+    };
+  },
+  "Dice Wars": (settings, setup) => {
+    const mapSize = settings.mapSize;
+    const maxDice = settings.maxDice;
+
+    return {
+      mapSize,
+      maxDice,
+    };
+  },
+  "Connect Four": (settings, setup) => {
+    const boardX = settings.boardX;
+    const boardY = settings.boardY;
+
+    return {
+      boardX,
+      boardY,
+    };
+    // return "Connect Four is currently not available.";
   },
 };
 

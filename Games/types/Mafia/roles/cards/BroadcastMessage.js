@@ -6,13 +6,29 @@ module.exports = class BroadcastMessage extends Card {
 
     this.listeners = {
       state: function (stateInfo) {
-        if (!stateInfo.name.match(/Overturn/)) {
-          return;
-        }
-
         for (let item of this.player.items) {
           if (item.name == "OverturnSpectator") {
             item.meetings["Overturn Vote"].speechAbilities = [
+              {
+                name: "Cry",
+                targets: ["out"],
+                targetType: "out",
+                verb: "",
+              },
+            ];
+          }
+          if (item.name == "JuryDuty") {
+            item.meetings["Court"].speechAbilities = [
+              {
+                name: "Cry",
+                targets: ["out"],
+                targetType: "out",
+                verb: "",
+              },
+            ];
+          }
+          if (item.name == "Room" && item.Room && item.Room.name) {
+            item.meetings[item.Room.name].speechAbilities = [
               {
                 name: "Cry",
                 targets: ["out"],

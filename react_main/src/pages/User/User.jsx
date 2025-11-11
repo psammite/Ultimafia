@@ -1,17 +1,33 @@
 import React, { useState, useContext, useRef, useEffect } from "react";
-import { Link, Route, Switch, Redirect } from "react-router-dom";
+import axios from "axios";
+
+import { Link, Route, Routes, Navigate } from "react-router-dom";
 import update from "immutability-helper";
 
-import Profile from "./Profile";
+import Profile, { KUDOS_ICON, KARMA_ICON, ACHIEVEMENTS_ICON } from "./Profile";
 import Settings from "./Settings";
 import Shop from "./Shop";
-import { UserContext, PopoverContext, SiteInfoContext } from "../../Contexts";
-import { SubNav } from "../../components/Nav";
-import { HiddenUpload } from "../../components/Form";
+import Inbox from "./Inbox";
+import { UserContext, SiteInfoContext, GameContext } from "Contexts";
+import AvatarUpload from "components/AvatarUpload";
 
-import "../../css/user.css";
-import { adjustColor, flipTextColor } from "../../utils";
-import { youtubeRegex } from "../../components/Basic";
+import "css/user.css";
+import { youtubeRegex } from "components/Basic";
+
+const soundcloudRegex = /^https?:\/\/(www\.)?soundcloud\.com\/[^\/]+\/[^\/\?]+/;
+const spotifyRegex =
+  /^https?:\/\/open\.spotify\.com\/(track|album|playlist|artist)\/[a-zA-Z0-9]+/;
+const vimeoRegex = /^https?:\/\/(www\.)?vimeo\.com\/(\d+)/;
+const invidiousRegex =
+  /^https?:\/\/(www\.)?(invidious\.io|yewtu\.be|invidious\.flokinet\.to|invidious\.nixnet\.xyz|invidious\.privacydev\.net|invidious\.kavin\.rocks|invidious\.tux\.pizza|invidious\.projectsegfau\.lt|invidious\.riverside\.rocks|invidious\.busa\.co|invidious\.tinfoil-hat\.net|invidious\.jotoma\.de|invidious\.fdn\.fr|invidious\.mastodon\.host|invidious\.lelux\.fi|invidious\.mint\.lgbt|invidious\.fdn\.fr|invidious\.lelux\.fi|invidious\.mint\.lgbt|invidious\.nixnet\.xyz|invidious\.privacydev\.net|invidious\.kavin\.rocks|invidious\.tux\.pizza|invidious\.projectsegfau\.lt|invidious\.riverside\.rocks|invidious\.busa\.co|invidious\.tinfoil-hat\.net|invidious\.jotoma\.de|invidious\.fdn\.fr|invidious\.mastodon\.host|invidious\.lelux\.fi|invidious\.mint\.lgbt)\/watch\?v=([a-zA-Z0-9_-]{11})/;
+import { useTheme } from "@mui/material/styles";
+import { Popover } from "@mui/material";
+import { Box, IconButton, Stack, Typography } from "@mui/material";
+import { PieChart } from "./PieChart";
+import { usePopoverOpen } from "hooks/usePopoverOpen";
+import { useIsPhoneDevice } from "hooks/useIsPhoneDevice";
+
+import santaDir from "images/holiday/santahat.png";
 
 export function YouTubeEmbed(props) {
   const embedId = props.embedId;
@@ -23,8 +39,9 @@ export function YouTubeEmbed(props) {
   }
   if (embedId !== null && embedId !== "") {
     return (
-      <div id="profile-video" className="video-responsive">
+      <div id="profile-video" className="video-responsive-generic">
         <iframe
+          className="video-responsive-content"
           src={`https://www.youtube.com/embed/${embedId}?autoplay=${autoplay}&mute=0`}
           allow="accelerometer; autoplay; clipboard-write; encrypted-media;"
           allowFullScreen
@@ -34,6 +51,95 @@ export function YouTubeEmbed(props) {
   } else {
     return null;
   }
+}
+
+export function SoundCloudEmbed(props) {
+  const mediaUrl = props.mediaUrl;
+  if (mediaUrl) {
+    return (
+      <div id="profile-video" className="video-responsive-generic">
+        <iframe
+          className="video-responsive-content"
+          src={`https://w.soundcloud.com/player/?url=${encodeURIComponent(
+            mediaUrl
+          )}&color=%23ff5500&auto_play=false&hide_related=false&show_comments=true&show_user=true&show_reposts=false&show_teaser=true&visual=true`}
+          allow="autoplay"
+          allowFullScreen
+        ></iframe>
+      </div>
+    );
+  } else {
+    return null;
+  }
+}
+
+export function SpotifyEmbed(props) {
+  const mediaUrl = props.mediaUrl;
+  if (mediaUrl) {
+    // Convert Spotify URL to embed format
+    const embedUrl = mediaUrl.replace(
+      "open.spotify.com",
+      "open.spotify.com/embed"
+    );
+    return (
+      <div id="profile-video" className="video-responsive-generic">
+        <iframe
+          className="video-responsive-content"
+          src={embedUrl}
+          allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+          allowFullScreen
+        ></iframe>
+      </div>
+    );
+  } else {
+    return null;
+  }
+}
+
+export function VimeoEmbed(props) {
+  const mediaUrl = props.mediaUrl;
+  const autoplay = props.autoplay ? 1 : 0;
+  if (mediaUrl) {
+    // Extract video ID from Vimeo URL
+    const vimeoMatches = mediaUrl.match(vimeoRegex);
+    if (vimeoMatches && vimeoMatches[2]) {
+      const videoId = vimeoMatches[2];
+      return (
+        <div id="profile-video" className="video-responsive-generic">
+          <iframe
+            className="video-responsive-content"
+            src={`https://player.vimeo.com/video/${videoId}?autoplay=${autoplay}&muted=0`}
+            allow="autoplay; fullscreen; picture-in-picture"
+            allowFullScreen
+          ></iframe>
+        </div>
+      );
+    }
+  }
+  return null;
+}
+
+export function InvidiousEmbed(props) {
+  const mediaUrl = props.mediaUrl;
+  const autoplay = props.autoplay ? 1 : 0;
+  if (mediaUrl) {
+    // Extract video ID from Invidious URL
+    const invidiousMatches = mediaUrl.match(invidiousRegex);
+    if (invidiousMatches && invidiousMatches[3]) {
+      const videoId = invidiousMatches[3];
+      return (
+        <div id="profile-video" className="video-responsive-generic">
+          <iframe
+            className="video-responsive-content"
+            src={`https://www.youtube.com/embed/${videoId}?autoplay=${autoplay}&mute=0`}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media;"
+            allowFullScreen
+          ></iframe>
+        </div>
+      );
+    }
+  }
+  return null;
 }
 export function MediaEmbed(props) {
   const mediaUrl = props.mediaUrl;
@@ -57,6 +163,18 @@ export function MediaEmbed(props) {
       embedId = ytMatches[7];
       return "youtube";
     }
+    if (mediaUrl.match(soundcloudRegex)) {
+      return "soundcloud";
+    }
+    if (mediaUrl.match(spotifyRegex)) {
+      return "spotify";
+    }
+    if (mediaUrl.match(vimeoRegex)) {
+      return "vimeo";
+    }
+    if (mediaUrl.match(invidiousRegex)) {
+      return "invidious";
+    }
     const extension = mediaUrl.split(".").slice("-1")[0];
     switch (extension) {
       case "webm":
@@ -66,7 +184,7 @@ export function MediaEmbed(props) {
       case "ogg":
         return "audio";
       default:
-        return null;
+        return "image";
     }
   };
   const mediaType = props.mediaType || getMediaType(mediaUrl);
@@ -91,6 +209,8 @@ export function MediaEmbed(props) {
   }, [mediaRef]);
 
   switch (mediaType) {
+    case "image":
+      return <img ref={mediaRef} src={mediaUrl}></img>;
     case "audio":
       return (
         <audio
@@ -116,49 +236,43 @@ export function MediaEmbed(props) {
       );
     case "youtube":
       return <YouTubeEmbed embedId={embedId} autoplay={autoplay} />;
+    case "soundcloud":
+      return <SoundCloudEmbed mediaUrl={mediaUrl} autoplay={autoplay} />;
+    case "spotify":
+      return <SpotifyEmbed mediaUrl={mediaUrl} autoplay={autoplay} />;
+    case "vimeo":
+      return <VimeoEmbed mediaUrl={mediaUrl} autoplay={autoplay} />;
+    case "invidious":
+      return <InvidiousEmbed mediaUrl={mediaUrl} autoplay={autoplay} />;
     default:
       return null;
   }
 }
 export default function User(props) {
+  const theme = useTheme();
   const user = useContext(UserContext);
-  const links = [
-    {
-      text: "Profile",
-      path: user.id ? `/user/${user.id}` : "/user",
-      exact: true,
-      hide: !user.loggedIn,
-    },
-    {
-      text: "Settings",
-      path: "/user/settings",
-      hide: !user.loggedIn,
-    },
-    {
-      text: "Shop",
-      path: "/user/shop",
-      hide: !user.loggedIn,
-    },
-  ];
+  const isPhoneDevice = useIsPhoneDevice();
+
+  if (user.loaded && !user.loggedIn) return <Navigate to="/" />;
 
   return (
     <>
-      <SubNav links={links} />
-      <div className="inner-content">
-        <Switch>
-          <Route exact path="/user" render={() => <Profile />} />
-          <Route exact path="/user/settings" render={() => <Settings />} />
-          <Route exact path="/user/shop" render={() => <Shop />} />
-          <Route exact path="/user/:userId" render={() => <Profile />} />
-          <Route render={() => <Redirect to="/user" />} />
-        </Switch>
-      </div>
+      <Box maxWidth="1080px" sx={{ mt: 1 }}>
+        <Routes>
+          <Route path="/" element={<Profile />} />
+          <Route path="settings" element={<Settings />} />
+          <Route path="shop" element={<Shop />} />
+          <Route path="inbox" element={<Inbox />} />
+          <Route path=":userId" element={<Profile />} />
+        </Routes>
+      </Box>
     </>
   );
 }
 
 export function Avatar(props) {
   const small = props.small;
+  const mediumlarge = props.mediumlarge;
   const large = props.large;
   const id = props.id;
   const name = props.name;
@@ -170,6 +284,10 @@ export function Avatar(props) {
   const dead = props.dead;
   const avatarId = props.avatarId;
   const deckProfile = props.deckProfile;
+  const absoluteLeftAvatarPx = props.absoluteLeftAvatarPx;
+  const ConnectFour = props.ConnectFour;
+  const isSquare = props.isSquare || false;
+  const border = props.border || undefined;
 
   const siteInfo = useContext(SiteInfoContext);
   const style = {};
@@ -187,14 +305,30 @@ export function Avatar(props) {
   var size;
 
   if (small) size = "small";
+  else if (mediumlarge) size = "mediumlarge";
   else if (large) size = "large";
   else size = "";
 
+  if (absoluteLeftAvatarPx) {
+    style.position = "absolute";
+    style.left = absoluteLeftAvatarPx;
+
+    if (!small && !ConnectFour) {
+      style.transform = "translateY(12px)";
+    }
+  }
+
+  if (ConnectFour) {
+    style.transform = "translateX(5px) translateY(5px)";
+  }
+
   if (hasImage && !imageUrl && id && avatarId) {
-    if (id === avatarId && !deckProfile) {
-      style.backgroundImage = `url(/uploads/${id}_avatar.webp?t=${siteInfo.cacheVal})`;
-    } else {
-      style.backgroundImage = `url(/uploads/decks/${avatarId}.webp?t=${siteInfo.cacheVal})`;
+    if (id === avatarId) {
+      if (!deckProfile) {
+        style.backgroundImage = `url(/uploads/${id}_avatar.webp?t=${siteInfo.cacheVal})`;
+      } else {
+        style.backgroundImage = `url(/uploads/decks/${avatarId}.webp?t=${siteInfo.cacheVal})`;
+      }
     }
   } else if (hasImage && !imageUrl && id) {
     style.backgroundImage = `url(/uploads/${id}_avatar.webp?t=${siteInfo.cacheVal})`;
@@ -213,19 +347,68 @@ export function Avatar(props) {
 
     style.backgroundColor = colors[Math.floor(rand * colors.length)];
   }
+  if (typeof hasImage == "string") {
+    if (hasImage.includes("decks")) {
+      style.backgroundImage = `url(/uploads${hasImage}?t=${siteInfo.cacheVal})`;
+      style.backgroundColor = "#00000000";
+    }
+  }
+
+  {
+    /*SANTA CHANGES: In December, uncomment the below lines*/
+  }
+  {
+    /*var santaWidth;
+  var santaHorizAdjust;
+  var santaVertAdjust;
+
+  if (large) {
+    santaWidth = "100px";
+    santaHorizAdjust = -25;
+    santaVertAdjust = -40;
+  } else if (small) {
+    santaWidth = "20px;";
+    santaHorizAdjust = -5;
+    santaVertAdjust = -8;
+  } else {
+    santaWidth = "40px";
+    santaHorizAdjust = -12;
+    santaVertAdjust = -15;
+  }
+var santaAdjust = `translate(${santaHorizAdjust}px, ${santaVertAdjust}px)`;*/
+  }
+  {
+    /*SANTA CHANGES*/
+  }
 
   return (
     <div
       className={`avatar ${size} ${dead ? "dead" : ""} ${
         active ? "active" : ""
       }`}
-      style={style}
+      style={{
+        ...style,
+        display: "inline-block",
+        borderRadius: isSquare ? "0px" : "50%",
+        border: border,
+      }}
     >
       {edit && (
-        <HiddenUpload className="edit" name="avatar" onFileUpload={onUpload}>
+        <AvatarUpload className="edit" name="avatar" onFileUpload={onUpload}>
           <i className="far fa-file-image" />
-        </HiddenUpload>
+        </AvatarUpload>
       )}
+
+      {/*SANTA CHANGES: In December, uncomment the below lines*/}
+      {/*<div>
+        <img
+          className="santa"
+          width={santaWidth}
+          style={{ position: "absolute", transform: santaAdjust }}
+          src={santaDir}
+        ></img>
+      </div>*/}
+      {/*SANTA CHANGES*/}
     </div>
   );
 }
@@ -241,24 +424,50 @@ export function NameWithAvatar(props) {
   const active = props.active;
   const groups = props.groups;
   const dead = props.dead;
-  const popover = useContext(PopoverContext);
   const avatarId = props.avatarId;
   const deckProfile = props.deckProfile;
+  const includeMiniprofile = props.includeMiniprofile;
+  const absoluteLeftAvatarPx = props.absoluteLeftAvatarPx;
+  const vanityUrl = props.vanityUrl;
 
-  var userNameClassName = `user-name ${
-    props.dead ? "dead" : adjustColor(color)
-  }`;
-  // var userNameClassName = `user-name ${adjustColor(color)}`;
+  const game = useContext(GameContext);
+  const [userProfile, setUserProfile] = useState(null);
+  const [isClicked, setIsClicked] = useState(false);
 
-  return (
-    <Link
-      className={`name-with-avatar ${noLink ? "no-link" : ""}`}
-      to={`/user/${id}`}
-      target={newTab ? "_blank" : ""}
-      onClick={(e) => {
-        popover.setVisible(false);
+  const {
+    popoverOpen: canOpenPopover,
+    popoverClasses,
+    anchorEl,
+    handleClick: handlePopoverClick,
+    handleMouseEnter,
+    handleMouseLeave,
+    closePopover,
+  } = usePopoverOpen();
 
-        if (noLink) e.preventDefault();
+  const popoverOpen = includeMiniprofile && canOpenPopover;
+
+  useEffect(() => {
+    if (includeMiniprofile && id) {
+      axios
+        .get(`/api/user/${id}/profile`)
+        .then((res) => {
+          res.data.props = props;
+          setUserProfile(res.data);
+        })
+        .catch((error) => {
+          console.warn(
+            `Couldn't retrieve profile for ${id} (this error is harmless if they're a bot)`
+          );
+        });
+    }
+  }, []);
+
+  var contents = (
+    <Stack
+      direction="row"
+      spacing={absoluteLeftAvatarPx ? 0 : small ? 0.5 : 1}
+      sx={{
+        alignItems: "center",
       }}
     >
       <Avatar
@@ -270,23 +479,232 @@ export function NameWithAvatar(props) {
         dead={dead}
         active={active}
         deckProfile={deckProfile}
+        absoluteLeftAvatarPx={absoluteLeftAvatarPx}
       />
       <div
-        className={userNameClassName}
-        style={color ? { color: flipTextColor(color) } : {}}
+        className={`user-name ${props.dead ? "dead" : color}`}
+        style={{ ...(color ? { color } : {}), display: "inline" }}
       >
         {name}
       </div>
       {groups && <Badges groups={groups} small={small} />}
-    </Link>
+    </Stack>
   );
+
+  // noLink should take precedence over includeMiniprofile
+  if (noLink) {
+    return (
+      <div
+        className={`name-with-avatar no-link`}
+        target={newTab ? "_blank" : ""}
+      >
+        {contents}
+      </div>
+    );
+  } else if (includeMiniprofile) {
+    const handlePlayerClick = (e) => {
+      if (props.onClick) return props.onClick();
+
+      if (!props.name || !includeMiniprofile) return;
+
+      handlePopoverClick(e);
+
+      setIsClicked(popoverOpen);
+    };
+
+    const handleMiniprofileClose = (e) => {
+      setIsClicked(false);
+      closePopover();
+    };
+
+    return (
+      <>
+        <div
+          className={`name-with-avatar no-link${
+            isClicked ? " name-with-avatar-clicked" : ""
+          }`}
+          onClick={handlePlayerClick}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+        >
+          {contents}
+        </div>
+        <div>
+          <Popover
+            open={props.showPopover !== false && popoverOpen}
+            sx={popoverClasses}
+            anchorEl={anchorEl}
+            anchorOrigin={{
+              vertical: "center",
+              horizontal: "right",
+            }}
+            transformOrigin={{
+              vertical: "center",
+              horizontal: "left",
+            }}
+            onClose={handleMiniprofileClose}
+            disableScrollLock
+          >
+            {userProfile && (
+              <>
+                <Miniprofile
+                  user={userProfile}
+                  game={game}
+                  key={userProfile.id}
+                />
+              </>
+            )}
+          </Popover>
+        </div>
+      </>
+    );
+  } else {
+    const profileLink = vanityUrl ? `/user/${vanityUrl}` : `/user/${id}`;
+    return (
+      <Link
+        className={`name-with-avatar`}
+        to={profileLink}
+        target={newTab ? "_blank" : ""}
+      >
+        {contents}
+      </Link>
+    );
+  }
+}
+
+export function Miniprofile(props) {
+  const user = props.user;
+  const game = props.game;
+  const inheritedProps = user.props;
+
+  const id = user.id;
+  const name = user.name || "[deleted]";
+  const pronouns = user.pronouns || "";
+  const avatar = user.avatar;
+  const color = inheritedProps.color;
+  const avatarId = inheritedProps.avatarId;
+  const hasDefaultPronouns = pronouns === "";
+  const vanityUrl = user.vanityUrl;
+
+  var mafiaStats = user.stats["Mafia"].all;
+
+  const profileLink = vanityUrl ? `/user/${vanityUrl}` : `/user/${id}`;
+
+  return (
+    <div className="miniprofile">
+      <div className="mui-popover-title">
+        <Link className={`name-with-avatar`} to={profileLink} target="_blank">
+          <Stack direction="row" spacing={1}>
+            <Avatar hasImage={avatar} id={id} avatarId={avatarId} name={name} />
+            <div
+              className={`user-name`}
+              style={{
+                ...(color ? { color } : {}),
+                display: "inline",
+                alignSelf: "center",
+              }}
+            >
+              {name}
+            </div>
+          </Stack>
+        </Link>
+      </div>
+      {!hasDefaultPronouns && <div className="pronouns">({pronouns})</div>}
+      <PieChart
+        wins={mafiaStats.wins.count}
+        losses={mafiaStats.wins.total - mafiaStats.wins.count}
+        abandons={mafiaStats.abandons.total}
+      />
+      <div className="score-info">
+        <div className="score-info-column">
+          <div className="score-info-row score-info-smallicon">
+            <img src={KUDOS_ICON} />
+          </div>
+          <div className="score-info-row">{user.kudos}</div>
+        </div>
+        <div className="score-info-column">
+          <div className="score-info-row score-info-smallicon">
+            <img src={KARMA_ICON} />
+          </div>
+          <div className="score-info-row">{user.karma}</div>
+        </div>
+        <div className="score-info-column">
+          <div className="score-info-row score-info-smallicon">
+            <img src={ACHIEVEMENTS_ICON} />
+          </div>
+          <div className="score-info-row">{user.achievements.length}/40</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function getLoveTitle(loveType) {
+  if (loveType === "Lover") {
+    return "In Love With";
+  } else if (loveType === "Married") {
+    return "Married To";
+  } else return "";
 }
 
 export function StatusIcon(props) {
   return <div className={`status-icon ${props.status}`} />;
 }
 
+export function OnlineStatus(props) {
+  const { status, lastActive } = props;
+
+  if (status === "online") {
+    return (
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 0.5,
+        }}
+      >
+        <Typography
+          variant="caption"
+          sx={{
+            filter: "opacity(.75)",
+            fontSize: "0.75rem",
+          }}
+        >
+          Online
+        </Typography>
+        <div className="status-icon online" />
+      </Box>
+    );
+  }
+
+  if (lastActive) {
+    const lastActiveDate = new Date(lastActive);
+    const formattedDate = lastActiveDate.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+
+    return (
+      <Typography
+        variant="caption"
+        sx={{
+          filter: "opacity(.75)",
+          fontSize: "0.75rem",
+        }}
+      >
+        Last online {formattedDate}
+      </Typography>
+    );
+  }
+
+  return null;
+}
+
 export function Badges(props) {
+  if (props.groups[0] === null) {
+    return <></>;
+  }
   const badges = props.groups
     .filter((g) => g.badge)
     .sort((a, b) => a.rank - b.rank)
@@ -304,6 +722,54 @@ export function Badges(props) {
   );
 }
 
+export function LoveIcon(props) {
+  const isLove = props.isLove;
+  const love = props.love;
+  const userId = props.userId;
+  const loveType = love.type;
+  const onLoveClick = props.onClick;
+  const isMarried = props.isMarried;
+  const currentUserLove = props.currentUserLove;
+
+  if (
+    (!isLove && !isMarried && !currentUserLove) ||
+    (isLove && loveType !== "Married" && love.id === userId)
+  ) {
+    return (
+      <IconButton aria-label="love user">
+        <i
+          className={`fas fa-heart  ${isLove ? "sel-love" : ""}`}
+          onClick={onLoveClick}
+        />
+      </IconButton>
+    );
+  }
+  return null;
+}
+
+export function MarriedIcon(props) {
+  const isMarried = props.isMarried;
+  const userId = props.userId;
+  const love = props.love;
+  const saved = props.saved;
+  const isLove = props.isLove;
+  const loveType = love.type;
+  const onMarryClick = props.onClick;
+  if (userId === love.id) {
+    if ((saved && isLove && loveType === "Lover") || isMarried) {
+      return (
+        <IconButton aria-label="marry user">
+          <i
+            className={`fas fa-ring ${isMarried ? "sel-married" : ""}`}
+            onClick={onMarryClick}
+          />
+        </IconButton>
+      );
+    }
+  }
+  return null;
+}
+
 export function Badge(props) {
   return (
     <div className="badge">
@@ -314,69 +780,4 @@ export function Badge(props) {
       />
     </div>
   );
-}
-
-export function useUser() {
-  const [user, setUser] = useState({
-    loggedIn: false,
-    loaded: false,
-    perms: {},
-    rank: 0,
-    blockedUsers: [],
-    settings: {},
-    itemsOwned: {},
-  });
-
-  function clear() {
-    setUser({
-      loggedIn: false,
-      loaded: true,
-      perms: {},
-      rank: 0,
-      blockedUsers: [],
-    });
-  }
-
-  function blockUserToggle(userId) {
-    var userIndex = user.blockedUsers.indexOf(userId);
-
-    if (userIndex === -1) {
-      setUser(
-        update(user, {
-          blockedUsers: {
-            $push: [userId],
-          },
-        })
-      );
-    } else {
-      setUser(
-        update(user, {
-          blockedUsers: {
-            $splice: [[userIndex, 1]],
-          },
-        })
-      );
-    }
-  }
-
-  function updateSetting(prop, value) {
-    setUser(
-      update(user, {
-        settings: {
-          [prop]: {
-            $set: value,
-          },
-        },
-      })
-    );
-  }
-
-  return {
-    ...user,
-    state: user,
-    set: setUser,
-    blockUserToggle,
-    updateSetting,
-    clear,
-  };
 }

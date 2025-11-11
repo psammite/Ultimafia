@@ -1,5 +1,5 @@
 const Card = require("../../Card");
-const { PRIORITY_ITEM_GIVER_DEFAULT } = require("../../const/Priority");
+const { PRIORITY_EFFECT_GIVER_DEFAULT } = require("../../const/Priority");
 
 module.exports = class DouseInGasoline extends Card {
   constructor(role) {
@@ -7,15 +7,34 @@ module.exports = class DouseInGasoline extends Card {
 
     this.startItems = ["Match"];
 
+    this.actions = [
+      {
+        labels: ["dropItems", "hidden"],
+        priority: PRIORITY_EFFECT_GIVER_DEFAULT - 1,
+        run: function () {
+          for (let item of this.actor.items) {
+            if (item.name === "Match") {
+              if (this.actor.role.name === "Pyromaniac") {
+                item.reusable = true;
+              } else {
+                item.reusable = false;
+              }
+            }
+          }
+        },
+      },
+    ];
+
     this.meetings = {
       "Douse Player": {
         states: ["Night"],
         flags: ["voting"],
         action: {
-          labels: ["giveItem", "gasoline"],
-          priority: PRIORITY_ITEM_GIVER_DEFAULT,
+          role: role,
+          labels: ["effect", "gasoline"],
+          priority: PRIORITY_EFFECT_GIVER_DEFAULT,
           run: function () {
-            this.target.holdItem("Gasoline");
+            this.role.giveEffect(this.target, "Gasoline");
           },
         },
       },

@@ -5,9 +5,34 @@ module.exports = class Towncrier extends Role {
     super("Town Crier", player, data);
 
     this.alignment = "Village";
-    this.cards = ["VillageCore", "WinWithVillage", "BroadcastMessage"];
+    this.cards = [
+      "VillageCore",
+      "WinWithFaction",
+      "MeetingFaction",
+      "BroadcastMessage",
+    ];
     this.meetingMods = {
       Village: {
+        speechAbilities: [
+          {
+            name: "Cry",
+            targets: ["out"],
+            targetType: "out",
+            verb: "",
+          },
+        ],
+      },
+      "Room 1": {
+        speechAbilities: [
+          {
+            name: "Cry",
+            targets: ["out"],
+            targetType: "out",
+            verb: "",
+          },
+        ],
+      },
+      "Room 2": {
         speechAbilities: [
           {
             name: "Cry",

@@ -10,7 +10,7 @@ module.exports = class WeddingRing extends Item {
     this.meetings[meetingName] = {
       meetingName: "Accept Proposal",
       states: ["Day"],
-      flags: ["voting", "instant"],
+      flags: ["voting", "instant", "Important"],
       inputType: "boolean",
       action: {
         labels: ["marriage"],
@@ -21,7 +21,17 @@ module.exports = class WeddingRing extends Item {
             isAccepted = "accepted";
 
             if (!this.item.proposer.alive) {
-              this.actor.role.revealToAll();
+              //this.actor.role.revealToAll();
+              let info = this.game.createInformation(
+                "RevealInfo",
+                this.item.proposer,
+                this.game,
+                this.actor,
+                null,
+                "All"
+              );
+              info.processInfo();
+              info.getInfoRaw();
               this.game.queueAlert(
                 `${this.actor.name} weeps at the dead suitress.`
               );
@@ -30,9 +40,9 @@ module.exports = class WeddingRing extends Item {
 
             this.item.proposer.role.isMarried = true;
             this.item.proposer.role.revealToAll();
-            this.item.proposer.giveEffect("InLoveWith", this.actor);
+            //this.item.proposer.giveEffect("Lovesick", this.actor);
             this.actor.role.revealToAll();
-            this.actor.giveEffect("InLoveWith", this.proposer);
+            //this.actor.giveEffect("Lovesick", this.proposer);
           }
 
           this.game.queueAlert(

@@ -11,7 +11,7 @@
       "remoteRoot": "\\home\\um",
       "localRoot": "/workspaces/Ultimafia",
       "port": 9231,
-      "address": "localhost",
+      "address": "localhost"
     },
     {
       "type": "node",
@@ -29,6 +29,15 @@
       "remoteRoot": "\\home\\um",
       "localRoot": "/workspaces/Ultimafia",
       "port": 9232,
+      "address": "localhost"
+    },
+    {
+      "type": "node",
+      "request": "attach",
+      "name": "Docker: Mocha",
+      "remoteRoot": "\\home\\um",
+      "localRoot": "/workspaces/Ultimafia",
+      "port": 5858,
       "address": "localhost"
     },
     {

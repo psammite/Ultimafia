@@ -1,4 +1,5 @@
 const Card = require("../../Card");
+const Action = require("../../Action");
 const Random = require("../../../../../lib/Random");
 const { PRIORITY_DAY_DEFAULT } = require("../../const/Priority");
 const { PRIORITY_KILL_DEFAULT } = require("../../const/Priority");
@@ -16,11 +17,11 @@ module.exports = class OpenTheDoor extends Card {
         inputType: "boolean",
         action: {
           priority: PRIORITY_DAY_DEFAULT,
+          role: this.role,
           run: function () {
             if (this.target == "No") return;
 
-            this.actor.role.openedDoor = true;
-            this.actor.role.openedDoorLastNight = true;
+            this.role.openedDoorLastNight = true;
 
             var evil = this.game
               .alivePlayers()
@@ -30,19 +31,25 @@ module.exports = class OpenTheDoor extends Card {
               // impossible as game will end
               return;
             }
+            let info = this.game.createInformation(
+              "EvilPlayerInfo",
+              this.actor,
+              this.game,
+              this.actor
+            );
+            info.processInfo();
 
-            this.game.queueAlert(`Bluebeard's Wife has opened the door!`);
+            this.game.queueAlert(`The Mistress has opened the door!`);
             this.actor.queueAlert(
-              `You learn that ${evilPlayer.name} is evil and cannot be trusted!`
+              `You learn that ${
+                info.getInfoRaw().name
+              } is evil and cannot be trusted!`
             );
           },
         },
-        shouldMeet() {
-          return !this.openedDoor;
-        },
       },
     };
-
+    /*
     this.actions = [
       {
         priority: PRIORITY_KILL_DEFAULT + 1,
@@ -57,12 +64,49 @@ module.exports = class OpenTheDoor extends Card {
 
           // death is absolute
           if (imminentDeath) {
-            this.actor.kill("bluebeard", this.actor);
+            this.actor.kill("mistress", this.actor);
           }
 
           delete this.actor.role.openedDoorLastNight;
         },
       },
     ];
+*/
+
+    this.listeners = {
+      state: function (stateInfo) {
+        if (!this.hasAbility(["OnlyWhenAlive", "Kill"])) {
+          return;
+        }
+
+        if (!stateInfo.name.match(/Night/)) {
+          return;
+        }
+
+        var action = new Action({
+          actor: this.player,
+          game: this.player.game,
+          priority: PRIORITY_KILL_DEFAULT + 1,
+          role: this.role,
+          run: function () {
+            if (!this.role.openedDoorLastNight) return;
+
+            var visitors = this.getVisitors();
+            var imminentDeath = !visitors.find(
+              (visitor) => visitor.role.alignment == "Village"
+            );
+
+            // death is absolute
+            if (imminentDeath) {
+              this.actor.kill("mistress", this.actor);
+            }
+
+            delete this.role.openedDoorLastNight;
+          },
+        });
+
+        this.game.queueAction(action);
+      },
+    };
   }
 };

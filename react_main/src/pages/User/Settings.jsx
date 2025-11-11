@@ -1,24 +1,47 @@
 import React, { useState, useEffect, useContext } from "react";
-import { Redirect, useHistory } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import axios from "axios";
 import update from "immutability-helper";
 
-import { UserContext, SiteInfoContext } from "../../Contexts";
-import LoadingPage from "../Loading";
-import Form, { useForm } from "../../components/Form";
-import { useErrorAlert } from "../../components/Alerts";
+import {
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Box,
+  Button,
+  Typography,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
+  TextField,
+  LinearProgress,
+  Paper,
+} from "@mui/material";
+import { useColorScheme } from "@mui/material/styles";
 
-import "../../css/settings.css";
-import { setCaptchaVisible } from "../../utils";
+import { UserContext, SiteInfoContext } from "Contexts";
+import Form, { useForm } from "components/Form";
+import { useErrorAlert } from "components/Alerts";
+import { getAuth, sendPasswordResetEmail } from "firebase/auth";
 
-export default function Settings(props) {
+import "css/settings.css";
+import { setCaptchaVisible } from "utils";
+import { NewLoading } from "../Welcome/NewLoading";
+
+export default function Settings() {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [accountsLoaded, setAccountsLoaded] = useState(false);
   const [accounts, setAccounts] = useState({});
-  const history = useHistory();
+  const [accessibilityTheme, setAccessibilityTheme] = useState("");
+  const [emailForPasswordReset, setEmailForPasswordReset] = useState("");
+  const [loading, setLoading] = useState(false);
+  const { mode, setMode } = useColorScheme();
+
   const user = useContext(UserContext);
   const siteInfo = useContext(SiteInfoContext);
   const errorAlert = useErrorAlert();
+  const navigate = useNavigate();
 
   const [siteFields, updateSiteFields] = useForm([
     {
@@ -26,7 +49,7 @@ export default function Settings(props) {
       ref: "referralURL",
       type: "text",
       value: (deps) =>
-        `${process.env.REACT_APP_URL}/auth/login?ref=${deps.user.id}`,
+        `${import.meta.env.REACT_APP_URL}/auth/login?ref=${deps.user.id}`,
       fixed: true,
       highlight: true,
     },
@@ -48,34 +71,50 @@ export default function Settings(props) {
       showIf: (deps) => deps.user.perms.disableAllCensors,
     },
     {
+      label: "Font size",
+      ref: "fontSize",
+      type: "select",
+      options: [
+        {
+          label: "System",
+          value: "system",
+        },
+        {
+          label: "16 pixels",
+          value: "16",
+        },
+        {
+          label: "18 pixels",
+          value: "18",
+        },
+        {
+          label: "20 pixels",
+          value: "20",
+        },
+        {
+          label: "24 pixels",
+          value: "24",
+        },
+      ],
+      value: mode,
+    },
+    {
       label: "Hide Deleted Posts",
       ref: "hideDeleted",
       type: "boolean",
       showIf: (deps) => deps.user.perms.viewDeleted,
     },
     {
-      label: "Role Icon Scheme",
-      ref: "roleIconScheme",
-      type: "select",
-      options: [
-        {
-          label: "Vivid",
-          value: "vivid",
-        },
-        {
-          label: "Noir",
-          value: "noir",
-        },
-      ],
-    },
-    {
       label: "Site Color Scheme",
       ref: "siteColorScheme",
       type: "select",
+      onChange: (event) => {
+        setMode(event.target.value);
+      },
       options: [
         {
-          label: "Auto",
-          value: "auto",
+          label: "System",
+          value: "system",
         },
         {
           label: "Light",
@@ -86,6 +125,80 @@ export default function Settings(props) {
           value: "dark",
         },
       ],
+      value: mode,
+    },
+    {
+      label: "Disable Protips",
+      ref: "disableProTips",
+      type: "boolean",
+    },
+    {
+      label: "Experimental High DPI Correction",
+      ref: "expHighDpiCorrection",
+      type: "boolean",
+    },
+    {
+      label: "Custom Site Primary Color",
+      ref: "customPrimaryColor",
+      type: "color",
+      default: "none",
+      disabled: (deps) => !deps.user.itemsOwned.customPrimaryColor,
+    },
+    {
+      label: "Icon Filter",
+      ref: "iconFilter",
+      type: "select",
+      options: [
+        {
+          label: "None",
+          value: "none",
+        },
+        {
+          label: "High Contrast",
+          value: "highContrast",
+        },
+        {
+          label: "Elevated",
+          value: "elevated",
+        },
+        {
+          label: "Sepia",
+          value: "sepia",
+        },
+        {
+          label: "Green",
+          value: "green",
+        },
+        {
+          label: "Inverted",
+          value: "inverted",
+        },
+        {
+          label: "Grayscale",
+          value: "grayscale",
+        },
+        {
+          label: "Colorful",
+          value: "colorful",
+        },
+        {
+          label: "Upside Down",
+          value: "upsideDown",
+        },
+        {
+          label: "Hallucination",
+          value: "hallucination",
+        },
+        {
+          label: "Chromatic Aberration",
+          value: "chromaticAberration",
+        },
+        {
+          label: "Vaporwave",
+          value: "vaporwave",
+        },
+      ],
+      disabled: (deps) => !deps.user.itemsOwned.iconFilter,
     },
   ]);
 
@@ -101,6 +214,14 @@ export default function Settings(props) {
         confirm: "Are you sure you wish to change your username?",
       },
       {
+        label: "Pronouns",
+        ref: "pronouns",
+        type: "text",
+        saveBtn: "Change",
+        saveBtnDiffer: "pronouns",
+        saveBtnOnClick: onPronounsSave,
+      },
+      {
         label: "Birthday",
         ref: "birthday",
         type: "date",
@@ -108,32 +229,9 @@ export default function Settings(props) {
         saveBtnDiffer: "bdayChanged",
         default: Date.now(),
         saveBtnOnClick: onBirthdaySave,
-        confirm:
-          "Are you sure you wish to change your birthday? Your birthday can only be changed ONCE per account.",
-      },
-      {
-        label: "Show Discord",
-        ref: "showDiscord",
-        type: "boolean",
-        showIf: (deps) => deps.accounts.discord && deps.accounts.discord.id,
-      },
-      {
-        label: "Show Twitch",
-        ref: "showTwitch",
-        type: "boolean",
-        showIf: (deps) => deps.accounts.twitch && deps.accounts.twitch.id,
-      },
-      // {
-      // 	label: "Show Google",
-      // 	ref: "showGoogle",
-      // 	type: "boolean",
-      // 	showIf: (deps) => deps.accounts.google && deps.accounts.google.id
-      // },
-      {
-        label: "Show Steam",
-        ref: "showSteam",
-        type: "boolean",
-        showIf: (deps) => deps.accounts.steam && deps.accounts.steam.id,
+        clearBtn: "Clear",
+        clearBtnOnClick: onBirthdayClear,
+        confirm: "Are you sure you wish to change your birthday?",
       },
       {
         label: "Background Color",
@@ -143,13 +241,15 @@ export default function Settings(props) {
         disabled: (deps) => !deps.user.itemsOwned.customProfile,
       },
       {
-        label: "Media video",
+        label: "Media URL",
         ref: "youtube",
         type: "text",
         saveBtn: "Change",
         saveBtnDiffer: "youtube",
-        saveBtnOnClick: onYoutubeSave,
+        saveBtnOnClick: onMediaSave,
         default: "",
+        extraInfo:
+          "Supports YouTube, SoundCloud, Spotify, Vimeo, Invidious, and direct media files (mp3, mp4, webm, ogg)",
       },
       {
         label: "Autoplay Media",
@@ -174,9 +274,48 @@ export default function Settings(props) {
         disabled: (deps) => !deps.user.itemsOwned.customProfile,
       },
       {
+        label: "Avatar shape",
+        ref: "avatarShape",
+        type: "select",
+        options: [
+          {
+            label: "Circle",
+            value: "circle",
+          },
+          {
+            label: "Square",
+            value: "square",
+          },
+        ],
+        disabled: (deps) => !deps.user.itemsOwned.avatarShape,
+      },
+      {
         label: "Hide Statistics",
         ref: "hideStatistics",
         type: "boolean",
+      },
+      {
+        label: "Hide Karma",
+        ref: "hideKarma",
+        type: "boolean",
+      },
+      {
+        label: "Hide Misfortune",
+        ref: "hidePointsNegative",
+        type: "boolean",
+      },
+      {
+        label: "Vanity URL",
+        ref: "vanityUrl",
+        type: "text",
+        saveBtn: "Change",
+        saveBtnDiffer: "vanityUrl",
+        saveBtnOnClick: onVanityUrlSave,
+        clearBtn: "Clear",
+        clearBtnOnClick: onVanityUrlClear,
+        disabled: (deps) => !deps.user.itemsOwned.vanityUrl,
+        extraInfo:
+          "Set a custom URL for your profile (1-20 characters, letters, numbers, and hyphens only)",
       },
     ],
     [accounts]
@@ -187,15 +326,19 @@ export default function Settings(props) {
       label: "Name Color",
       ref: "nameColor",
       type: "color",
-      default: "#000",
+      default: "#68a9dc",
       disabled: (deps) => !deps.user.itemsOwned.textColors,
+      extraInfo:
+        "Note: Colors must have good contrast in both light and dark themes (minimum 3:1 ratio). Choose colors that are readable on both white and dark backgrounds.",
     },
     {
       label: "Text Color",
       ref: "textColor",
       type: "color",
-      default: "#000",
+      default: "#FFF",
       disabled: (deps) => !deps.user.itemsOwned.textColors,
+      extraInfo:
+        "Note: Colors must have good contrast in both light and dark themes (minimum 3:1 ratio). Choose colors that are readable on both white and dark backgrounds.",
     },
     {
       label: "Ignore Custom Text Color",
@@ -203,7 +346,7 @@ export default function Settings(props) {
       type: "boolean",
     },
     {
-      label: "Death Message (max 80 chars)",
+      label: "Death Message (max 150 chars)",
       ref: "deathMessage",
       type: "text",
       textStyle: "large",
@@ -212,81 +355,250 @@ export default function Settings(props) {
       saveBtnOnClick: onCustomDeathMessageSave,
       disabled: (deps) => !deps.user.itemsOwned.deathMessageEnabled,
     },
+    {
+      label: "Upload Custom Emote",
+      ref: "customEmotes",
+      type: "emoteUpload",
+      onCustomEmoteUpload: onCustomEmoteUpload,
+      onCustomEmoteDelete: onCustomEmoteDelete,
+      disabled: (deps) =>
+        deps.user.itemsOwned.customEmotes !== undefined &&
+        deps.user.itemsOwned.customEmotes.length > 0,
+    },
   ]);
 
   useEffect(() => {
     document.title = "Settings | UltiMafia";
-  }, []);
-
-  useEffect(() => {
     if (user.loaded && user.loggedIn) {
-      if (!settingsLoaded) {
-        axios
-          .get("/user/settings/data")
-          .then((res) => {
-            let siteFormFieldChanges = [];
-            let profileFormFieldChanges = [];
-            let gameFormFieldChanges = [];
-
-            for (let ref in res.data) {
-              if (!res.data[ref]) continue;
-
-              siteFormFieldChanges.push({
-                ref: ref,
-                prop: "value",
-                value: res.data[ref],
-              });
-              profileFormFieldChanges.push({
-                ref: ref,
-                prop: "value",
-                value: res.data[ref],
-              });
-              gameFormFieldChanges.push({
-                ref: ref,
-                prop: "value",
-                value: res.data[ref],
-              });
-            }
-
-            updateSiteFields(siteFormFieldChanges);
-            updateProfileFields(profileFormFieldChanges);
-            updateGameFields(gameFormFieldChanges);
-            setSettingsLoaded(true);
-          })
-          .catch(errorAlert);
-      }
-
-      if (!accountsLoaded) {
-        axios
-          .get("/user/accounts")
-          .then((res) => {
-            setAccounts(res.data);
-            setAccountsLoaded(true);
-          })
-          .catch(errorAlert);
-      }
+      if (!settingsLoaded) loadSettings();
+      if (!accountsLoaded) loadAccounts();
     }
   }, [user]);
+
+  const loadSettings = () => {
+    axios
+      .get("/api/user/settings/data")
+      .then((res) => {
+        updateFieldsFromData(res.data);
+        setSettingsLoaded(true);
+      })
+      .catch(errorAlert);
+  };
+
+  const loadAccounts = () => {
+    axios
+      .get("/api/user/accounts")
+      .then((res) => {
+        setAccounts(res.data);
+        setAccountsLoaded(true);
+      })
+      .catch(errorAlert);
+  };
+
+  const updateFieldsFromData = (data) => {
+    let changes = Object.keys(data).map((ref) => ({
+      ref,
+      prop: "value",
+      value: data[ref],
+    }));
+    updateSiteFields(changes);
+    updateProfileFields(changes);
+    updateGameFields(changes);
+  };
+
+  const handleAccessibilityThemeChange = async (e) => {
+    const value = e.target.value;
+    try {
+      await axios.post("/api/user/settings/update", {
+        prop: "accessibilityTheme",
+        value,
+      });
+      user.updateSetting("accessibilityTheme", value);
+      setAccessibilityTheme(value);
+    } catch (err) {
+      errorAlert();
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    setLoading(true);
+    try {
+      const auth = getAuth();
+      await sendPasswordResetEmail(auth, emailForPasswordReset);
+      siteInfo.showAlert("Password reset email has been sent.", "success");
+      setEmailForPasswordReset("");
+    } catch (err) {
+      siteInfo.showAlert("Failed to send password reset email.", "error");
+      console.error(err);
+    }
+    setLoading(false);
+  };
+
+  if (user.loaded && !user.loggedIn) return <Navigate to="/play" />;
+  if (!settingsLoaded || !accountsLoaded || !user.loaded)
+    return <NewLoading small />;
+
+  return (
+    <Paper
+      className="settings"
+      sx={{
+        p: 1,
+      }}
+    >
+      <Accordion>
+        <AccordionSummary>
+          <Typography variant="h3">Accessibility</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Box sx={{ width: 1 / 2 }}>
+            <FormControl variant="standard" sx={{ minWidth: 240 }} size="small">
+              <InputLabel>Accessibility Theme</InputLabel>
+              <Select
+                value={accessibilityTheme}
+                onChange={handleAccessibilityThemeChange}
+              >
+                <MenuItem value="">
+                  <em>None</em>
+                </MenuItem>
+                <MenuItem value={"Higher Contrast"}>Higher Contrast</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+        </AccordionDetails>
+      </Accordion>
+
+      <Accordion>
+        <AccordionSummary>
+          <Typography variant="h3">Site</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Box sx={{ width: 1 / 2 }}>
+            <Form
+              fields={siteFields}
+              deps={{ user }}
+              onChange={(action) => onSettingChange(action, updateSiteFields)}
+            />
+          </Box>
+        </AccordionDetails>
+      </Accordion>
+
+      <Accordion>
+        <AccordionSummary>
+          <Typography variant="h3">Profile</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Box sx={{ width: 1 / 2 }}>
+            <Form
+              fields={profileFields}
+              deps={{
+                name: user.name,
+                pronouns: user.pronouns,
+                user,
+                accounts,
+                siteInfo,
+                errorAlert,
+              }}
+              onChange={(action) =>
+                onSettingChange(action, updateProfileFields)
+              }
+            />
+          </Box>
+        </AccordionDetails>
+      </Accordion>
+
+      <Accordion>
+        <AccordionSummary>
+          <Typography variant="h3">Game</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Box sx={{ width: 1 / 2 }}>
+            <Form
+              fields={gameFields}
+              deps={{ user, siteInfo, errorAlert }}
+              onChange={(action) => onSettingChange(action, updateGameFields)}
+            />
+          </Box>
+        </AccordionDetails>
+      </Accordion>
+
+      <Accordion>
+        <AccordionSummary>
+          <Typography variant="h3">Account</Typography>
+        </AccordionSummary>
+        <Box sx={{ width: "50%", mx: "auto" }}>
+          <AccordionDetails>
+            <div className="accounts-row">
+              <div className="accounts-column">
+                <Box
+                  sx={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 1,
+                    alignItems: "center",
+                  }}
+                >
+                  <TextField
+                    sx={{ minWidth: "240px" }}
+                    label="Email Address"
+                    value={emailForPasswordReset}
+                    onChange={(e) => setEmailForPasswordReset(e.target.value)}
+                    disabled={loading}
+                  />
+                  <Button
+                    sx={{ minWidth: "240px" }}
+                    onClick={handlePasswordReset}
+                    disabled={loading || !emailForPasswordReset}
+                  >
+                    Reset Password
+                  </Button>
+                </Box>
+
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-evenly",
+                    mt: 2,
+                  }}
+                >
+                  <Button
+                    variant="outlined"
+                    sx={{ minWidth: "120px" }}
+                    onClick={onLogoutClick}
+                  >
+                    Sign Out
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    sx={{ minWidth: "120px" }}
+                    onClick={onDeleteClick}
+                  >
+                    Delete Account
+                  </Button>
+                </Box>
+              </div>
+            </div>
+          </AccordionDetails>
+        </Box>
+      </Accordion>
+    </Paper>
+  );
 
   function onSettingChange(action, update) {
     if (action.prop === "value" && !action.localOnly) {
       axios
-        .post("/user/settings/update", {
+        .post("/api/user/settings/update", {
           prop: action.ref,
           value: action.value,
         })
-        .then(() => {
-          user.updateSetting(action.ref, action.value);
-        })
+        .then(() => user.updateSetting(action.ref, action.value))
         .catch(errorAlert);
     }
-
     update(action);
   }
 
   function onBirthdaySave(date, deps) {
     axios
-      .post("/user/birthday", { date })
+      .post("/api/user/birthday", { date })
       .then((res) => {
         deps.siteInfo.showAlert("Birthday set", "success");
 
@@ -300,16 +612,39 @@ export default function Settings(props) {
       .catch(deps.errorAlert);
   }
 
+  function onBirthdayClear(deps) {
+    if (!window.confirm("Are you sure you want to clear your birthday?")) {
+      return;
+    }
+
+    axios
+      .delete("/api/user/birthday")
+      .then((res) => {
+        deps.siteInfo.showAlert("Birthday cleared", "success");
+
+        deps.user.set(
+          update(deps.user, {
+            birthday: { $set: undefined },
+            bdayChanged: { $set: false },
+          })
+        );
+
+        // Update the form field to empty
+        updateProfileFields({
+          ref: "birthday",
+          prop: "value",
+          value: undefined,
+          localOnly: true,
+        });
+      })
+      .catch(deps.errorAlert);
+  }
+
   function onUsernameSave(name, deps) {
     var code = "";
 
-    if (reservedNames.indexOf(name.toLowerCase()) !== -1)
-      code = window.prompt(
-        "This name is reserved, please enter your reservation code."
-      );
-
     axios
-      .post("/user/name", { name, code })
+      .post("/api/user/name", { name, code })
       .then((res) => {
         deps.siteInfo.showAlert("Username changed", "success");
 
@@ -327,11 +662,26 @@ export default function Settings(props) {
       .catch(deps.errorAlert);
   }
 
-  function onYoutubeSave(link, deps) {
+  function onPronounsSave(pronouns, deps) {
     axios
-      .post("/user/youtube", { link })
+      .post("/api/user/pronouns", { pronouns })
       .then((res) => {
-        deps.siteInfo.showAlert("Profile video changed", "success");
+        deps.siteInfo.showAlert("Pronouns changed", "success");
+
+        deps.user.set(
+          update(deps.user, {
+            pronouns: { $set: pronouns },
+          })
+        );
+      })
+      .catch(deps.errorAlert);
+  }
+
+  function onMediaSave(link, deps) {
+    axios
+      .post("/api/user/youtube", { link })
+      .then((res) => {
+        deps.siteInfo.showAlert("Profile media changed", "success");
 
         deps.user.set(
           update(deps.user, {
@@ -344,7 +694,7 @@ export default function Settings(props) {
 
   function onCustomDeathMessageSave(deathMessage, deps) {
     axios
-      .post("/user/deathMessage", { deathMessage })
+      .post("/api/user/deathMessage", { deathMessage })
       .then((res) => {
         deps.siteInfo.showAlert("Death message changed", "success");
 
@@ -357,302 +707,101 @@ export default function Settings(props) {
       .catch(deps.errorAlert);
   }
 
+  function onVanityUrlSave(vanityUrl, deps) {
+    axios
+      .post("/api/vanityUrl", { vanityUrl })
+      .then((res) => {
+        deps.siteInfo.showAlert("Vanity URL changed", "success");
+
+        deps.user.set(
+          update(deps.user, {
+            settings: {
+              vanityUrl: { $set: vanityUrl },
+            },
+          })
+        );
+      })
+      .catch(deps.errorAlert);
+  }
+
+  function onVanityUrlClear(deps) {
+    if (!window.confirm("Are you sure you want to clear your vanity URL?")) {
+      return;
+    }
+
+    axios
+      .delete("/api/vanityUrl")
+      .then((res) => {
+        deps.siteInfo.showAlert("Vanity URL cleared", "success");
+
+        deps.user.set(
+          update(deps.user, {
+            settings: {
+              vanityUrl: { $set: undefined },
+            },
+          })
+        );
+
+        // Update the form field to empty
+        updateProfileFields({
+          ref: "vanityUrl",
+          prop: "value",
+          value: "",
+        });
+      })
+      .catch(deps.errorAlert);
+  }
+
+  function onCustomEmoteUpload(
+    emoteText,
+    imageFilename,
+    imageMimeType,
+    blob,
+    deps
+  ) {
+    const formData = new FormData();
+    const file = new File([blob], imageFilename);
+    formData.append("file", file);
+    formData.append("emoteText", emoteText);
+
+    axios
+      .post("/api/user/customEmote/create", formData, {})
+      .then((res) => {
+        deps.siteInfo.showAlert("Uploaded custom emote", "success");
+      })
+      .catch(deps.errorAlert);
+  }
+
+  function onCustomEmoteDelete(id, deps) {
+    axios
+      .post("/api/user/customEmote/delete", { id: id }, {})
+      .then((res) => {
+        deps.siteInfo.showAlert("Deleted custom emote", "success");
+      })
+      .catch(deps.errorAlert);
+  }
+
   function onLogoutClick() {
     axios
-      .post("/user/logout")
-      .then((res) => {
+      .post("/api/user/logout")
+      .then(() => {
         user.clear();
         setCaptchaVisible(true);
-        history.push("/");
+        navigate("/");
+        window.location.reload();
       })
       .catch(errorAlert);
   }
 
   function onDeleteClick() {
-    const shouldDelete = window.confirm(
-      "Are you sure you wish to delete your account? This is irreversible."
-    );
-
-    if (!shouldDelete) return;
-
-    axios
-      .post("/user/delete")
-      .then((res) => {
-        user.clear();
-        history.push("/");
-      })
-      .catch(errorAlert);
+    if (window.confirm("Are you sure you wish to **DELETE** your account?")) {
+      axios
+        .post("/api/user/delete")
+        .then(() => {
+          user.clear();
+          navigate("/");
+        })
+        .catch(errorAlert);
+    }
   }
-
-  if (user.loaded && !user.loggedIn) return <Redirect to="/play" />;
-
-  if (!settingsLoaded || !accountsLoaded || !user.loaded)
-    return <LoadingPage />;
-
-  return (
-    <div className="span-panel main settings">
-      <div className="heading">Site</div>
-      <Form
-        fields={siteFields}
-        deps={{ user }}
-        onChange={(action) => onSettingChange(action, updateSiteFields)}
-      />
-      <div className="heading">Profile</div>
-      <Form
-        fields={profileFields}
-        deps={{ name: user.name, user, accounts, siteInfo, errorAlert }}
-        onChange={(action) => onSettingChange(action, updateProfileFields)}
-      />
-      <div className="heading">Game</div>
-      <Form
-        fields={gameFields}
-        deps={{
-          deathMessage: user.settings.deathMessage,
-          user,
-          siteInfo,
-          errorAlert,
-        }}
-        onChange={(action) => onSettingChange(action, updateGameFields)}
-      />
-      <div className="heading">Accounts</div>
-      <div className="accounts-row">
-        <div className="accounts-column">
-          <div className="btn btn-theme-sec logout" onClick={onLogoutClick}>
-            Sign Out
-          </div>
-          <div className="btn delete-account" onClick={onDeleteClick}>
-            Delete Account
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 }
-
-const reservedNames = [
-  "Giga",
-  "Giga13",
-  "rend",
-  "croned",
-  "gameshowmaster",
-  "gayshowmaster",
-  "Golbolco",
-  "damiandaniel72",
-  "filko",
-  "elizachikorita",
-  "nyouhas",
-  "Thisinthat",
-  "jacobkrin",
-  "nirkbocaj",
-  "hima",
-  "Rutab",
-  "Nick",
-  "kidneybeans",
-  "emma",
-  "baabaa",
-  "DiSoRiEnTeD",
-  "DiSo",
-  "imasavage",
-  "ducky",
-  "Pranay7744",
-  "Hugo",
-  "Dasein",
-  "SpaceTimeJumpa",
-  "eadin",
-  "jingahegami",
-  "Kalakaua",
-  "GoldenOne",
-  "SamP4Palmer",
-  "sevenseas",
-  "GaryThompson",
-  "lemonsun",
-  "matt",
-  "Transcend",
-  "cozy",
-  "winx",
-  "Roxy",
-  "Dawn",
-  "mahugashaka",
-  "koba",
-  "DkKoba",
-  "DarkB",
-  "LeaderMafia",
-  "Validor",
-  "BrenTheDerg",
-  "juke",
-  "polly",
-  "eric",
-  "evolpz",
-  "BradLand",
-  "GoodQuestion",
-  "Torreador",
-  "Gamethroweador",
-  "monkney",
-  "monkey",
-  "Furry",
-  "Merlot",
-  "Winnie",
-  "arials",
-  "arials92",
-  "lesbian",
-  "gays",
-  "Mephistopheles",
-  "Facilier",
-  "MIKEISTKRIEG",
-  "MIKEISTKRlEG",
-  "JesseVentura",
-  "nomsterrpengi",
-  "kirbywithaknife",
-  "kirbywithagun",
-  "Super",
-  "shady",
-  "shady12",
-  "cowboy",
-  "Skittlez",
-  "Moldyches",
-  "Mizzmox",
-  "Fro30",
-  "Ngekop73",
-  "ivana",
-  "queen",
-  "catlady",
-  "mocha",
-  "Rapsician",
-  "Akari",
-  "Sonrio",
-  "Purple",
-  "GardeningPapa",
-  "davesprite",
-  "sunburst",
-  "RhaegarX",
-  "Jennings",
-  "ogwam",
-  "bono",
-  "Loser",
-  "Winner",
-  "talisker",
-  "rigby",
-  "CharlieBradbury",
-  "KingEvin",
-  "swan",
-  "dream",
-  "ERNurse",
-  "lain",
-  "jimmyjimjam",
-  "starry",
-  "muki",
-  "starrydash",
-  "Xinde",
-  "sl0nderman",
-  "starlysama",
-  "lena",
-  "nancy",
-  "komaeda",
-  "FLICKER",
-  "Donut",
-  "Mafia",
-  "Mafsided",
-  "PikachUwU",
-  "Vaporeon",
-  "marex",
-  "feickoo",
-  "DrSharky",
-  "shwartz99",
-  "gemrush",
-  "sidnee",
-  "MrSlipperyButt",
-  "MrsSlipperyButt",
-  "emsychum",
-  "verum",
-  "Disguiser",
-  "Ryan",
-  "CyanRyan",
-  "SinB",
-  "xray",
-  "ShaggyRogers",
-  "TheGreatCornholio",
-  "RedRanger",
-  "staypositivefriend",
-  "FruityPebbles",
-  "kimchi",
-  "LeChuck",
-  "Marty",
-  "Joe_",
-  "Kerry",
-  "Miki",
-  "Tristan117",
-  "GoodBoiSweater",
-  "Clair",
-  "Hibiki",
-  "viivii",
-  "TheTurningRAY",
-  "Frabel",
-  "Wolf",
-  "TheAsian",
-  "Achilles",
-  "ragefakar",
-  "jets",
-  "zoot",
-  "EllaSantos",
-  "Baya",
-  "MeteorNate",
-  "spookyaleks",
-  "ohnoitsrepo",
-  "Sona",
-  "NinetyNineGhost",
-  "ggnore2332",
-  "Danny",
-  "dannyred694",
-  "flashbar",
-  "emily",
-  "bluscone",
-  "Bebop",
-  "morgan",
-  "Zetonate",
-  "johnmiller",
-  "Reshoe7777777",
-  "Chicken",
-  "getdropkicked",
-  "JigglyBuff",
-  "ibeg",
-  "khs131",
-  "krista",
-  "ania",
-  "caitelatte",
-  "celebrelatte",
-  "Charge",
-  "powerofdeath",
-  "nightwing8782",
-  "weaversden",
-  "Valkyrie",
-  "alex",
-  "megan",
-  "lana",
-  "psy420",
-  "anya",
-  "SnowyB",
-  "aphelios",
-  "MasterCthulhu",
-  "XrCyclone",
-  "Cyclone",
-  "sakin",
-  "CooperD",
-  "idah09h",
-  "jeteon",
-  "wink",
-  "nicole",
-  "sofia",
-  "sofiiia",
-  "Senty",
-  "Sabi",
-  "KutiPls",
-  "Cream7",
-  "Giga96",
-  "arcbell",
-  "admin",
-  "administrator",
-  "mod",
-  "moderator",
-  "lucid",
-  "lucidrains",
-];

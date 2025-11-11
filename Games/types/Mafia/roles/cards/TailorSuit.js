@@ -1,5 +1,7 @@
 const Card = require("../../Card");
-const { PRIORITY_ITEM_GIVER_DEFAULT } = require("../../const/Priority");
+const {
+  PRIORITY_MODIFY_INVESTIGATIVE_RESULT_DEFAULT,
+} = require("../../const/Priority");
 
 module.exports = class TailorSuit extends Card {
   constructor(role) {
@@ -10,29 +12,30 @@ module.exports = class TailorSuit extends Card {
         states: ["Night"],
         flags: ["voting"],
         action: {
+          role: this.role,
           labels: ["giveItem", "suit"],
-          priority: PRIORITY_ITEM_GIVER_DEFAULT,
+          priority: PRIORITY_MODIFY_INVESTIGATIVE_RESULT_DEFAULT,
           run: function () {
-            if (!this.actor.role.data.suit) {
+            if (!this.role.data.suit) {
               return;
             }
 
-            this.target.holdItem("Suit", this.actor.role.data.suit);
-            this.target.queueAlert(":suit: You have received a suit!");
-            delete this.actor.role.data.suit;
+            this.target.holdItem("Suit", { type: this.role.data.suit });
+            //this.target.queueAlert(":suit: You have received a suit!");
+            delete this.role.data.suit;
           },
         },
       },
       "Choose Suit": {
         states: ["Night"],
         flags: ["voting", "mustAct"],
-        inputType: "role",
-        targets: { include: ["all"] },
+        inputType: "AllRoles",
         action: {
+          role: this.role,
           labels: ["giveItem", "suit"],
-          priority: PRIORITY_ITEM_GIVER_DEFAULT - 1,
+          priority: PRIORITY_MODIFY_INVESTIGATIVE_RESULT_DEFAULT - 1,
           run: function () {
-            this.actor.role.data.suit = this.target;
+            this.role.data.suit = this.target;
           },
         },
       },

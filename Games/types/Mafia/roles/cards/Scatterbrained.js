@@ -7,7 +7,6 @@ module.exports = class Scatterbrained extends Card {
     this.hideModifier = {
       self: true,
       reveal: true,
-      investigate: true,
     };
 
     var appearance;
@@ -16,11 +15,8 @@ module.exports = class Scatterbrained extends Card {
     } else if (this.role.alignment === "Mafia") {
       appearance = "Trespasser";
     } else if (this.role.alignment === "Cult") {
-      appearance = "Werewolf";
-    } else if (
-      this.role.alignment === "Independent" ||
-      this.role.alignment === "Hostile"
-    ) {
+      appearance = "Bogeyman";
+    } else if (this.role.alignment === "Independent") {
       appearance = "Fool";
     }
 
@@ -37,7 +33,7 @@ module.exports = class Scatterbrained extends Card {
       "*": {
         actionName: "Visit",
       },
-      Mafia: {
+      "Mafia Kill": {
         actionName: "Mafia Kill",
       },
       Village: {
@@ -45,18 +41,9 @@ module.exports = class Scatterbrained extends Card {
       },
     };
 
-    if (
-      this.role.alignment === "Independent" ||
-      this.role.alignment === "Hostile"
-    ) {
+    if (this.role.alignment === "Independent") {
       this.meetingMods["*"] = {
         actionName: "Fool Around",
-      };
-    }
-
-    if (this.role.alignment === "Monsters") {
-      this.meetingMods["*"] = {
-        actionName: "Wolf Bite",
       };
     }
   }

@@ -2,6 +2,7 @@ const dotenv = require("dotenv").config();
 const shortid = require("shortid");
 const models = require("../db/models");
 const sockets = require("../lib/sockets");
+const utils = require("../lib/Utils");
 const db = require("../db/db");
 const redis = require("../modules/redis");
 const routeUtils = require("../routes/utils");
@@ -10,6 +11,7 @@ const logger = require("../modules/logging")("games");
 const User = require("./core/User");
 const { removeSpaces } = require("./core/Utils");
 const publisher = redis.client.duplicate();
+const axios = require("axios");
 
 const serverId = Number(process.env.NODE_APP_INSTANCE) || 0;
 const port = Number(process.env.GAME_PORT || "3010") + serverId;
@@ -29,9 +31,38 @@ var deprecated = false;
       onClose();
     };
 
+    const handleError = async (e) => {
+      var stack = e.stack.split("\n").slice(0, 6).join("\n");
+
+      if (process.env.DISCORD_ERROR_HOOK === undefined) {
+        console.log("Error: " + e);
+        return;
+      }
+
+      const discordAlert = JSON.parse(process.env.DISCORD_ERROR_HOOK);
+      try {
+        await axios({
+          method: "post",
+          url: discordAlert.hook,
+          data: {
+            content: `Error stack: \`\`\` ${stack}\`\`\``,
+            username: "Errorbot",
+            thread_name: `Game Error! ${e.message.split("'", "\n")[0]}`,
+          },
+        });
+      } catch (e) {
+        console.log("Error throwing error! " + e);
+      }
+    };
+
+    const errorHandle = (e) => {
+      logger.error(e);
+      handleError(e);
+    };
+
     process
-      .on("unhandledRejection", (err) => logger.error(err))
-      .on("uncaughtException", (err) => logger.error(err))
+      .on("unhandledRejection", (err) => errorHandle(err))
+      .on("uncaughtException", (err) => errorHandle(err))
       .on("exit", () => wrapOnClose("exit"))
       .on("SIGINT", () => wrapOnClose("SIGINT"))
       .on("SIGUSR1", () => wrapOnClose("SIGUSR1"))
@@ -52,12 +83,24 @@ var deprecated = false;
             const userId = await redis.authenticateToken(String(token));
             if (!userId) return;
 
+            const maxOwnedCustomEmotes =
+              constants.maxOwnedCustomEmotes +
+              constants.maxOwnedCustomEmotesExtra;
+
             user = await models.User.findOne({
               id: userId,
               deleted: false,
-            }).select(
-              "id name avatar settings dev itemsOwned rankedCount competitiveCount stats playedGame birthday referrer"
-            );
+            })
+              .select(
+                "id name avatar settings customEmotes dev itemsOwned rankedCount competitiveCount stats achievements availableStamps ownedStamps playedGame birthday referrer dailyChallenges dailyChallengesCompleted"
+              )
+              .populate([
+                {
+                  path: "customEmotes",
+                  select: "id extension name -_id",
+                  options: { limit: maxOwnedCustomEmotes },
+                },
+              ]);
 
             if (!user) {
               user = null;
@@ -73,6 +116,14 @@ var deprecated = false;
             user = user.toObject();
             user.socket = socket;
             user.settings = user.settings || {};
+            utils.remapCustomEmotes(user, userId);
+
+            // Load vanity URL
+            const vanityUrl = await models.VanityUrl.findOne({
+              userId: userId,
+            }).select("url -_id");
+            user.vanityUrl = vanityUrl?.url;
+
             user = new User(user);
 
             socket.send("authSuccess");
@@ -268,7 +319,7 @@ async function clearBrokenGames() {
 
 async function deprecationCheck() {
   if (deprecated && Object.keys(games).length == 0) {
-    console.log("The Game Service is deprecated... Closing it!");
+    console.log("The Game Service is deprecated… Closing it!");
     await onClose();
   }
 }

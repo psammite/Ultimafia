@@ -7,9 +7,9 @@ module.exports = class Drunk extends Role {
     this.alignment = "Village";
     this.cards = [
       "VillageCore",
-      "WinWithVillage",
+      "WinWithFaction",
+      "MeetingFaction",
       "NightRoleBlocker",
-      "EasterEggDrunkDrive",
     ];
     this.meetingMods = {
       Block: {

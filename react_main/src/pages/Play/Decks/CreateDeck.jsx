@@ -1,18 +1,15 @@
 import React, { useContext, useEffect, useRef, useState } from "react";
-import {
-  useLocation,
-  useHistory,
-} from "react-router-dom/cjs/react-router-dom.min";
+import { useLocation, useNavigate } from "react-router-dom";
 import { SiteInfoContext } from "../../../Contexts";
 import { useFieldArray, useForm } from "react-hook-form";
 import axios from "axios";
 import { useErrorAlert } from "../../../components/Alerts";
-import "../../../css/deck.css";
-import "../../../css/form.css";
+import "css/deck.css";
+import "css/form.css";
 
 export default function CreateDecks() {
   const location = useLocation();
-  const history = useHistory();
+  const navigate = useNavigate();
   const params = new URLSearchParams(location.search);
   const siteInfo = useContext(SiteInfoContext);
   const errorAlert = useErrorAlert();
@@ -58,7 +55,7 @@ export default function CreateDecks() {
   if (params.get("edit") && !editing) {
     setEditing(true);
     axios
-      .get(`/deck/${params.get("edit")}`)
+      .get(`/api/deck/${params.get("edit")}`)
       .then((res) => {
         let deck = res.data;
         setDeckName(deck.name);
@@ -88,7 +85,7 @@ export default function CreateDecks() {
   function onCreateDeck(editing, data) {
     let profiles = data.cards;
     axios
-      .post("/deck/create", {
+      .post("/api/deck/create", {
         name: deckName,
         profiles: profiles,
         editing: editing,
@@ -108,7 +105,7 @@ export default function CreateDecks() {
           }
           onFileUpload(profiles);
         } else {
-          history.push({ search: `?edit=${res.data.id}` });
+          navigate({ search: `?edit=${res.data.id}` });
           setEditing(true);
         }
       })
@@ -130,7 +127,7 @@ export default function CreateDecks() {
       }
 
       axios
-        .post(`/deck/profiles/create`, formData, {
+        .post(`/api/deck/profiles/create`, formData, {
           headers: {
             "Content-Type": "multipart/form-data",
           },
@@ -140,7 +137,7 @@ export default function CreateDecks() {
         })
         .catch((e) => {
           if (e.response == null || e.response.status == 413)
-            errorAlert("File too large, must be less than 2 MB.");
+            errorAlert("File too large, must be less than 1 MB.");
           else errorAlert(e);
         });
     }

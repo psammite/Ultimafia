@@ -13,6 +13,8 @@ module.exports = class Role {
     this.data = data || {};
     this.cards = [];
     this.alignment = "";
+    this.passiveEffects = [];
+    this.isExtraRole;
 
     /* Card overwritable properties */
     this.winCount = null;
@@ -23,13 +25,25 @@ module.exports = class Role {
         // Return true to stop checking for other winners
       },
     };
+    this.winCheckSpecial = {
+      priority: 0,
+      check: (counts, winners) => {
+        // winners.addPlayer(this.player, null or "group")
+        // Return true to stop checking for other winners
+      },
+    };
     this.appearance = {
+      self: "real",
+      reveal: "real",
+    };
+    this.appearanceMods = {
       self: "real",
       reveal: "real",
     };
     this.hideModifier = {};
     this.oblivious = {};
     this.actions = [];
+    this.passiveActions = [];
     this.startItems = [];
     this.startEffects = [];
     this.immunity = {};
@@ -37,8 +51,8 @@ module.exports = class Role {
     this.meetings = {};
     this.methods = {};
     this.listeners = {};
-    this.stealableListeners = {};
-    this.stolenListeners = [];
+    this.copyableListeners = {};
+    this.copiedListeners = [];
     this.stateMods = {
       /*
             name: {
@@ -84,7 +98,6 @@ module.exports = class Role {
       card.init();
       this.cards.splice(i, 1, card);
     }
-
     // Set default times of meetings
     for (let meetingName in this.meetings) {
       if (this.meetings[meetingName].times == null)
@@ -96,10 +109,14 @@ module.exports = class Role {
       var meetings = [];
       var meetingNames = [];
 
-      if (meetingName != "*" && this.meetings[meetingName]) {
+      if (
+        meetingName != "*" &&
+        !meetingName.includes("*") &&
+        this.meetings[meetingName]
+      ) {
         meetings = [this.meetings[meetingName]];
         meetingNames = [meetingName];
-      } else if (meetingName == "*") {
+      } else if (meetingName == "*" || meetingName.includes("*")) {
         meetings = Object.values(this.meetings);
         meetingNames = Object.keys(this.meetingMods);
       }
@@ -108,9 +125,11 @@ module.exports = class Role {
         let meeting = meetings[i];
 
         for (let key in this.meetingMods[meetingName]) {
-          if (key != "shouldMeet" || meeting.shouldMeet == null)
+          //this.game.queueAlert(`Meeting Player: ${this.player.name} Meeting: ${meetingName} Key: ${key}`);
+
+          if (key != "shouldMeet" || meeting.shouldMeet == null) {
             meeting[key] = this.meetingMods[meetingName][key];
-          else {
+          } else {
             let existingShouldMeet = meeting.shouldMeet.bind(this);
             let cardShouldMeet =
               this.meetingMods[meetingName].shouldMeet.bind(this);
@@ -137,8 +156,13 @@ module.exports = class Role {
 
     // Hold starting items
     for (let item of this.startItems) {
-      if (typeof item == "string") this.player.holdItem(item);
-      else this.player.holdItem(item.type, ...item.args);
+      let StartingItem;
+      if (typeof item == "string") {
+        StartingItem = this.player.holdItem(item);
+      } else {
+        StartingItem = this.player.holdItem(item.type, ...item.args);
+      }
+      this.player.startingItems.push(StartingItem);
     }
 
     // Give intial effects
@@ -151,9 +175,14 @@ module.exports = class Role {
     for (let key in this.appearance) {
       if (this.appearance[key] == "real") this.appearance[key] = this.name;
     }
+    for (let key in this.appearanceMods) {
+      if (this.appearanceMods[key] == "real")
+        this.appearanceMods[key] = this.modifier;
+    }
 
     // Bind role to winCheck
     this.winCheck.check = this.winCheck.check.bind(this);
+    this.winCheckSpecial.check = this.winCheckSpecial.check.bind(this);
 
     // Modify games states
     for (let name in this.stateMods) {
@@ -196,6 +225,7 @@ module.exports = class Role {
     // Configure temporary appearance reset
     this.game.events.on("afterActions", () => {
       this.tempAppearance = {};
+      this.tempAppearanceMods = {};
     });
   }
 
@@ -228,15 +258,15 @@ module.exports = class Role {
     this.listeners = [];
   }
 
-  stealListeners(player) {
-    for (let eventName in player.role.stealableListeners) {
-      let card = player.role.stealableListeners[eventName];
+  copyListeners(player) {
+    for (let eventName in player.role.copyableListeners) {
+      let card = player.role.copyableListeners[eventName];
 
       if (card) {
         let listener = card.listeners[eventName];
 
-        if (this.stolenListeners.indexOf(listener) == -1) {
-          this.stolenListeners.push(listener);
+        if (this.copiedListeners.indexOf(listener) == -1) {
+          this.copiedListeners.push(listener);
 
           if (!this.listeners[eventName]) this.listeners[eventName] = [];
 
@@ -248,11 +278,36 @@ module.exports = class Role {
     }
   }
 
-  getRevealText(roleName, modifiers) {
+  getRevealText(roleName, modifiers, rvealType) {
+    if (modifiers == null || modifiers == "" || modifiers == undefined) {
+      return `${roleName}`;
+    }
     return `${roleName}${modifiers ? ` (${modifiers})` : ""}`;
   }
 
-  revealToAll(noAlert, revealType) {
+  revealAlignmentToAll(noAlert, revealType, dueToDeath = false) {
+    revealType = revealType || "reveal";
+
+    if (!this.appearance[revealType] && !this.player.tempAppearance[revealType])
+      return;
+
+    var appearance = this.player.getAppearance(revealType);
+
+    //this.game.queueReveal(this.player, appearance);
+    this.game.queueReveal(this.player, this.game.getRoleAlignment(appearance));
+    if (!noAlert) {
+      const revealMessage = `${
+        this.player.name
+      }'s alignment is ${this.game.getRoleAlignment(appearance)}.`;
+      if (this.game.useObituaries) {
+        this.game.addToObituary(this.player.id, "revealMessage", revealMessage);
+      } else {
+        this.game.queueAlert(revealMessage);
+      }
+    }
+  }
+
+  revealToAll(noAlert, revealType, dueToDeath = false) {
     revealType = revealType || "reveal";
 
     if (!this.appearance[revealType] && !this.player.tempAppearance[revealType])
@@ -261,16 +316,20 @@ module.exports = class Role {
     var appearance = this.player.getAppearance(revealType);
     var roleName = appearance.split(":")[0];
     var modifiers = appearance.split(":")[1];
-
     this.game.queueReveal(this.player, appearance);
 
-    if (!noAlert)
-      this.game.queueAlert(
-        `${this.player.name}'s role is ${this.getRevealText(
-          roleName,
-          modifiers
-        )}.`
-      );
+    if (!noAlert) {
+      const revealMessage = `${this.player.name}'s role is ${this.getRevealText(
+        roleName,
+        modifiers,
+        revealType
+      )}.`;
+      if (dueToDeath && this.game.useObituaries) {
+        this.game.addToObituary(this.player.id, "revealMessage", revealMessage);
+      } else {
+        this.game.queueAlert(revealMessage);
+      }
+    }
   }
 
   revealToSelf(noAlert) {
@@ -281,12 +340,41 @@ module.exports = class Role {
     var modifiers = appearance.split(":")[1];
 
     this.player.history.recordRole(this.player, appearance);
-    this.player.send("reveal", { playerId: this.player.id, role: appearance });
 
-    if (!noAlert)
-      this.player.queueAlert(
-        `:system: Your role is ${this.getRevealText(roleName, modifiers)}.`
-      );
+    // Get full role data for the modal
+    const roleData = require("../../data/roles");
+    const roleFromData = roleData[this.game.type][roleName];
+
+    if (roleFromData) {
+      // Prepare role data for the frontend modal
+      const roleInfo = {
+        roleName: roleName,
+        modifiers: modifiers ? modifiers.split("/") : [],
+        alignment: roleFromData.alignment,
+        description: Array.isArray(roleFromData.description)
+          ? roleFromData.description.join(" ")
+          : roleFromData.description || "",
+        specialInteractions: roleFromData.SpecialInteractions
+          ? Object.values(roleFromData.SpecialInteractions).flat()
+          : [],
+        tags: roleFromData.tags || [],
+        category: roleFromData.category || "",
+      };
+
+      this.player.send("roleReveal", {
+        playerId: this.player.id,
+        role: appearance,
+        roleData: roleInfo,
+      });
+    } else {
+      // Fallback to original behavior if role data not found
+      this.player.send("reveal", {
+        playerId: this.player.id,
+        role: appearance,
+      });
+    }
+
+    if (!noAlert) return;
   }
 
   revealToPlayer(player, noAlert, revealType) {
@@ -319,6 +407,18 @@ module.exports = class Role {
     }
   }
 
+  queueNightActions() {
+    for (let options of this.passiveActions) {
+      //this.game.queueAlert(options.state + " " + this.game.getStateInfo().name)
+      if (this.game.getStateInfo().name.match(options.state)) {
+        if (options.ability && !this.hasAbility(options.ability)) {
+          return;
+        }
+        this.game.queueAction(new this.Action(options));
+      }
+    }
+  }
+
   getImmunity(type) {
     var immunity = this.immunity[type];
     if (immunity == null) immunity = 0;
@@ -326,7 +426,19 @@ module.exports = class Role {
   }
 
   remove() {
-    this.player.role = null;
+    if (this.isExtraRole != true) {
+      this.player.role = null;
+    }
+    for (let effect of this.passiveEffects) {
+      effect.remove();
+    }
+    this.passiveEffects = [];
+    this.game.events.emit(
+      "RoleBeingRemoved",
+      this,
+      this.player,
+      this.isExtraRole
+    );
     this.removeListeners();
   }
 

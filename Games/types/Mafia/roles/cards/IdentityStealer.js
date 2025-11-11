@@ -1,4 +1,5 @@
 const Card = require("../../Card");
+const Action = require("../../Action");
 const {
   PRIORITY_IDENTITY_STEALER,
   PRIORITY_IDENTITY_STEALER_BLOCK,
@@ -23,7 +24,11 @@ module.exports = class IdentityStealer extends Card {
             var originalActor = this.actor;
 
             for (let action of this.game.actions[0]) {
-              if (action.hasLabels(["kill", "mafia"]) && action.dominates()) {
+              if (
+                action.hasLabels(["kill", "mafia"]) &&
+                action.dominates(action.target, false) &&
+                action.target.alive
+              ) {
                 stealIdentity.bind(originalActor.role)(action.target);
                 action.target = originalActor;
                 break;
@@ -33,6 +38,7 @@ module.exports = class IdentityStealer extends Card {
         },
       },
     };
+    /*
     this.actions = [
       {
         priority: PRIORITY_IDENTITY_STEALER_BLOCK,
@@ -54,36 +60,61 @@ module.exports = class IdentityStealer extends Card {
         },
       },
     ];
+    */
     this.listeners = {
       death: function (player, killer, deathType) {
-        if (player == this.player) resetIdentities.bind(this)();
+        let swappedPlayers = this.game
+          .alivePlayers()
+          .filter((p) => p.user.swapped);
+        if (swappedPlayers.length <= 0) {
+          this.game.resetIdentities();
+        }
       },
-      aboutToFinish: function () {
-        resetIdentities.bind(this)();
+      state: function (stateInfo) {
+        if (!this.player.alive) {
+          return;
+        }
+
+        if (!stateInfo.name.match(/Night/)) {
+          return;
+        }
+
+        var action = new Action({
+          actor: this.player,
+          game: this.player.game,
+          priority: PRIORITY_IDENTITY_STEALER_BLOCK,
+          run: function () {
+            var stealing = false;
+            var killing = false;
+
+            for (let action of this.game.actions[0]) {
+              if (action.hasLabel("stealIdentity") && action.target == "Yes")
+                stealing = true;
+              else if (action.hasLabels(["kill", "mafia"])) killing = true;
+            }
+
+            if (stealing && killing)
+              for (let action of this.game.actions[0])
+                if (action.target == this.actor) action.cancel(true);
+          },
+        });
+
+        this.game.queueAction(action);
       },
     };
   }
 };
 
 function stealIdentity(target) {
-  if (!this.data.swaps) this.data.swaps = [];
+  if (!this.game.swaps) this.game.swaps = [];
 
   if (!this.data.originalUser) this.data.originalUser = this.player.user;
-
-  this.player.queueAlert(":anon: Someone has stolen your identity!");
-  this.data.swaps.unshift([this.player, target]);
+  if (!this.data.originalPlayer) this.data.originalPlayer = this.player;
+  //let temp = this.player.faction;
+  target.queueAlert(":anon: Someone has stolen your identity!");
+  //this.player.faction = target.faction;
+  //target.faction = temp;
+  this.game.swaps.unshift([this.player, target]);
   this.player.swapIdentity(target);
   this.data.originalUser.swapped = target.user;
-}
-
-function resetIdentities() {
-  if (!this.data.swaps) return;
-
-  for (let swap of this.data.swaps) {
-    swap[0].swapIdentity(swap[1]);
-    delete swap[1].swapped;
-  }
-
-  delete this.data.swaps;
-  delete this.data.originalUser.swapped;
 }

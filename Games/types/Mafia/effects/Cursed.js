@@ -7,10 +7,32 @@ module.exports = class Cursed extends Effect {
     this.actor = actor;
     this.word = word;
     this.lifespan = lifespan || 1;
+    this.isMalicious = true;
   }
 
   speak(message) {
     if (message.content.replace(" ", "").toLowerCase().includes(this.word)) {
+      var action = new Action({
+        actor: this.actor,
+        target: this.player,
+        game: this.game,
+        effect: this,
+        power: 2,
+        labels: ["kill", "curse", "hidden"],
+        run: function () {
+          if (this.dominates()) this.target.kill("curse", this.actor, true);
+          this.effect.remove();
+        },
+      });
+
+      this.game.instantAction(action);
+    }
+  }
+
+  speakQuote(quote) {
+    if (
+      quote.messageContent.replace(" ", "").toLowerCase().includes(this.word)
+    ) {
       var action = new Action({
         actor: this.actor,
         target: this.player,

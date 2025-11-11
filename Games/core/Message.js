@@ -9,7 +9,9 @@ module.exports = class Message {
     this.game = info.game;
     this.meeting = info.meeting;
     this.isServer = info.isServer;
+    this.extraStyle = info.extraStyle;
     this.recipients = info.recipients;
+    this.tags = info.tags;
     this.prefix = info.prefix;
     this.abilityName = info.abilityName;
     this.abilityTarget = info.abilityTarget;
@@ -96,21 +98,26 @@ module.exports = class Message {
         if (version.sender.anonId !== undefined) {
           version.textColor =
             version.sender.user.textColor !== undefined
-              ? Utils.adjustColor(version.sender.user.textColor)
+              ? version.sender.user.textColor
               : "";
           version.nameColor =
             version.sender.user.nameColor !== undefined
-              ? Utils.adjustColor(version.sender.user.nameColor)
+              ? version.sender.user.nameColor
               : "";
+          version.customEmotes = [];
         } else {
           version.textColor =
             version.sender.user.settings.textColor !== undefined
-              ? Utils.adjustColor(version.sender.user.settings.textColor)
+              ? version.sender.user.settings.textColor
               : "";
           version.nameColor =
             version.sender.user.settings.nameColor !== undefined
-              ? Utils.adjustColor(version.sender.user.settings.nameColor)
+              ? version.sender.user.settings.nameColor
               : "";
+          version.customEmotes =
+            version.sender.user.settings.customEmotes !== undefined
+              ? version.sender.user.settings.customEmotes
+              : [];
         }
       }
     } else return;
@@ -129,7 +136,10 @@ module.exports = class Message {
       quotable: version.quotable,
       textColor: version.textColor || "",
       nameColor: version.nameColor || "",
+      customEmotes: version.customEmotes || [],
       alive: version.alive !== undefined ? version.alive : undefined,
+      extraStyle: version.extraStyle,
+      tags: version.tags,
     };
   }
 };

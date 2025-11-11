@@ -12,6 +12,7 @@ module.exports = class Notebook extends Item {
       "Write Name": {
         states: ["Night"],
         flags: ["voting"],
+        item: this,
         action: {
           labels: ["kill"],
           priority: PRIORITY_KILL_DEFAULT + 1,
@@ -24,7 +25,7 @@ module.exports = class Notebook extends Item {
       "Pass On Notebook": {
         actionName: "Pass on the Notebook?",
         states: ["Day"],
-        flags: ["voting", "mustAct"],
+        flags: ["voting", "mustAct", "Important"],
         action: {
           labels: ["giveItem", "notebook", "absolute"],
           priority: PRIORITY_ITEM_GIVER_DEFAULT,

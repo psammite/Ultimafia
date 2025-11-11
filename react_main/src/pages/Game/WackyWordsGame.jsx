@@ -9,15 +9,20 @@ import {
   PlayerList,
   Timer,
   SpeechFilter,
+  SettingsMenu,
   Notes,
+  MobileLayout,
+  GameTypeContext,
 } from "./Game";
 import { GameContext } from "../../Contexts";
 import { SideMenu } from "./Game";
+import { useIsPhoneDevice } from "hooks/useIsPhoneDevice";
 
-import "../../css/gameAcrotopia.css";
+import "css/gameAcrotopia.css";
 
 export default function WackyWordsGame(props) {
   const game = useContext(GameContext);
+  const isPhoneDevice = useIsPhoneDevice();
 
   const history = game.history;
   const updateHistory = game.updateHistory;
@@ -83,87 +88,42 @@ export default function WackyWordsGame(props) {
   }, game.socket);
 
   return (
-    <>
-      <TopBar
-        gameType={gameType}
-        setup={game.setup}
-        history={history}
-        stateViewing={stateViewing}
-        updateStateViewing={updateStateViewing}
-        players={players}
-        socket={game.socket}
-        options={game.options}
-        spectatorCount={game.spectatorCount}
-        setLeave={game.setLeave}
-        finished={game.finished}
-        review={game.review}
-        setShowSettingsModal={game.setShowSettingsModal}
-        setRehostId={game.setRehostId}
-        noLeaveRef={game.noLeaveRef}
-        dev={game.dev}
-        gameName={
-          <div className="game-name">
-            <span>Wacky Words</span>
-          </div>
-        }
-        timer={<Timer timers={game.timers} history={history} />}
-      />
+    <GameTypeContext.Provider
+      value={{
+        singleState: true,
+      }}
+    >
+      <TopBar />
       <ThreePanelLayout
         leftPanelContent={
           <>
-            <PlayerList
-              players={players}
-              history={history}
-              gameType={gameType}
-              stateViewing={stateViewing}
-              activity={game.activity}
-            />
-            <SpeechFilter
-              filters={game.speechFilters}
-              setFilters={game.setSpeechFilters}
-              stateViewing={stateViewing}
-            />
+            <PlayerList />
+            <SpeechFilter />
+            <SettingsMenu />
           </>
         }
         centerPanelContent={
           <>
-            <TextMeetingLayout
-              combineMessagesFromAllMeetings
-              socket={game.socket}
-              history={history}
-              updateHistory={updateHistory}
-              players={players}
-              stateViewing={stateViewing}
-              settings={game.settings}
-              filters={game.speechFilters}
-              options={game.options}
-              setup={game.setup}
-              agoraClient={game.agoraClient}
-              localAudioTrack={game.localAudioTrack}
-              setActiveVoiceChannel={game.setActiveVoiceChannel}
-              muted={game.muted}
-              setMuted={game.setMuted}
-              deafened={game.deafened}
-              setDeafened={game.setDeafened}
-            />
+            <TextMeetingLayout />
           </>
         }
         rightPanelContent={
           <>
             <HistoryKeeper history={history} stateViewing={stateViewing} />
-            <ActionList
-              socket={game.socket}
-              meetings={meetings}
-              players={players}
-              self={self}
-              history={history}
-              stateViewing={stateViewing}
-            />
-            {!isSpectator && <Notes stateViewing={stateViewing} />}
+            <ActionList />
+            <Notes />
           </>
         }
       />
-    </>
+      <MobileLayout
+        innerRightContent={
+          <>
+            <HistoryKeeper history={history} stateViewing={stateViewing} />
+            <ActionList />
+          </>
+        }
+      />
+    </GameTypeContext.Provider>
   );
 }
 

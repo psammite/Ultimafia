@@ -5,39 +5,57 @@ import React, {
   useRef,
   useReducer,
   useContext,
+  useMemo,
 } from "react";
 import axios from "axios";
 import update from "immutability-helper";
+import {
+  Badge,
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  List,
+  ListItemButton,
+  MenuItem,
+  Paper,
+  Select,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 
 import { ClientSocket as Socket } from "../../Socket";
 import { useErrorAlert } from "../../components/Alerts";
 import { NameWithAvatar, StatusIcon } from "../User/User";
 import { UserContext } from "../../Contexts";
 import { MaxChatMessageLength } from "../../Constants";
-import { Time, UserText } from "../../components/Basic";
-import { NotificationHolder, useOnOutsideClick } from "../../components/Basic";
+import { Time, UserText, useOnOutsideClick } from "../../components/Basic";
 
-import "../../css/chat.css";
-import { flipTextColor } from "../../utils";
+import "css/chat.css";
 
 export default function Chat() {
-  const [showWindow, setShowWindow] = useState(false);
   const [connected, setConnected] = useState(0);
   const [token, setToken] = useState("");
   const [socket, setSocket] = useState({});
   const [chatInfo, updateChatInfo] = useChatInfoReducer();
-  const [currentTab, setCurrentTab] = useState("rooms");
   const [currentChannelId, setCurrentChannelId] = useState();
   const [channel, updateChannel] = useChannelReducer();
   const [newDMUsers, setNewDMUsers] = useState({});
   const [textInput, setTextInput] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
   const [userSearchVal, setUserSearchVal] = useState("");
+  const [newChatDialogOpen, setNewChatDialogOpen] = useState(false);
 
   const messageListRef = useRef();
   const oldScrollHeight = useRef();
   const user = useContext(UserContext);
   const errorAlert = useErrorAlert();
+  const theme = useTheme();
 
   useLayoutEffect(() => manageScroll());
 
@@ -50,10 +68,14 @@ export default function Chat() {
 
     var socketURL;
 
-    if (process.env.REACT_APP_USE_PORT === "true")
-      socketURL = `${process.env.REACT_APP_SOCKET_PROTOCOL}://${process.env.REACT_APP_SOCKET_URI}:${process.env.REACT_APP_CHAT_PORT}`;
+    if (import.meta.env.REACT_APP_USE_PORT === "true")
+      socketURL = `${import.meta.env.REACT_APP_SOCKET_PROTOCOL}://${
+        import.meta.env.REACT_APP_SOCKET_URI
+      }:${import.meta.env.REACT_APP_CHAT_PORT}`;
     else
-      socketURL = `${process.env.REACT_APP_SOCKET_PROTOCOL}://${process.env.REACT_APP_SOCKET_URI}/chatSocket`;
+      socketURL = `${import.meta.env.REACT_APP_SOCKET_PROTOCOL}://${
+        import.meta.env.REACT_APP_SOCKET_URI
+      }/chatSocket`;
 
     var newSocket = new Socket(socketURL);
     newSocket.on("connected", () => setConnected(connected + 1));
@@ -124,14 +146,14 @@ export default function Chat() {
       });
 
       if (info.focus) {
-        setCurrentTab("directs");
+        setCurrentTab("chats");
         setCurrentChannelId(info.channel.id);
         socket.send("getChannel", info.channel.id);
       }
     });
 
     socket.on("openDM", (channelId) => {
-      setCurrentTab("directs");
+      setCurrentTab("chats");
       setCurrentChannelId(channelId);
       socket.send("getChannel", channelId);
     });
@@ -180,40 +202,26 @@ export default function Chat() {
 
   function getToken() {
     axios
-      .get("/chat/connect")
+      .get("/api/chat/connect")
       .then((res) => {
         setToken(res.data);
       })
       .catch(errorAlert);
   }
 
-  function onTopBarClick() {
-    setShowWindow(!showWindow);
-    setAutoScroll(true);
-
-    if (!showWindow) {
-      if (currentChannelId) socket.send("getChannel", currentChannelId);
-
-      if (currentChannelId) {
-        if (chatInfo.notifs.byChannel[currentChannelId])
-          socket.send("readNotifsInChannel", currentChannelId);
-
-        updateChatInfo({
-          type: "readNotifs",
-          channelId: currentChannelId,
-        });
-      }
-    } else socket.send("closedChat");
+  function onOpenNewChatDialog() {
+    setNewChatDialogOpen(true);
+    setUserSearchVal("");
+    socket.send("getUsers", "");
   }
 
-  function onTabClick(type) {
-    setCurrentTab(type);
-
-    if (type === "users") socket.send("getUsers", userSearchVal);
+  function onCloseNewChatDialog() {
+    setNewChatDialogOpen(false);
+    setNewDMUsers({});
   }
 
-  function onChannelClick(id) {
-    if (currentTab !== "users") {
+  function onChannelSelect(id, type) {
+    if (type !== "users") {
       socket.send("getChannel", id);
 
       setCurrentChannelId(id);
@@ -303,149 +311,316 @@ export default function Chat() {
     updateChannel({ type: "clear" });
     updateChatInfo({
       type: "remove",
-      channelType: currentTab,
+      channelType: channel?.public ? "rooms" : "directs",
       channelId,
     });
   }
 
-  var channels = chatInfo[currentTab];
+  const rooms = chatInfo.rooms || [];
+  const directs = (chatInfo.directs || []).slice();
+  const usersList = chatInfo.users || [];
 
-  if (currentTab === "directs") channels = channels.sort(sortDMs);
+  const navEntries = useMemo(
+    () => [
+      ...rooms.map((channel) => ({ channel, type: "rooms" })),
+      ...directs.sort(sortDMs).map((channel) => ({
+        channel,
+        type: "directs",
+      })),
+    ],
+    [rooms, directs]
+  );
 
-  channels = channels.reduce((channels, channel) => {
-    if (currentTab === "users" && channel.id === user.id) return channels;
+  useEffect(() => {
+    if (!currentChannelId && navEntries.length > 0) {
+      const first = navEntries[0];
+      onChannelSelect(first.channel.id, first.type);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentChannelId, navEntries]);
 
-    var className = "channel";
+  const navChannelItems = navEntries.reduce((items, entry) => {
+    const { channel, type } = entry;
 
-    if (currentTab !== "users" && channel.id === currentChannelId)
-      className += " sel";
-    else if (currentTab === "users" && newDMUsers[channel.id])
-      className += " sel";
+    const notifCount = chatInfo.notifs.byChannel[channel.id] || 0;
+    const isSelected = channel.id === currentChannelId;
 
-    channels.push(
-      <NotificationHolder
-        className={className}
-        key={channel.id}
-        notifCount={chatInfo.notifs.byChannel[channel.id]}
-        onClick={() => onChannelClick(channel.id)}
+    items.push(
+      <MenuItem
+        key={`${type}-${channel.id}`}
+        selected={isSelected}
+        onClick={() => onChannelSelect(channel.id, type)}
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1.5,
+          py: 1,
+        }}
       >
-        <ChannelName
-          short
-          channelType={currentTab}
-          channel={channel}
-          user={user}
-        />
-      </NotificationHolder>
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={1.5}
+          sx={{ flexGrow: 1, minWidth: 0 }}
+        >
+          <ChannelName short channelType={type} channel={channel} user={user} />
+        </Stack>
+        {notifCount > 0 && (
+          <Badge
+            color="error"
+            badgeContent={notifCount > 99 ? "99+" : notifCount}
+            sx={{
+              "& .MuiBadge-badge": {
+                fontSize: "0.65rem",
+                minWidth: 20,
+                height: 18,
+              },
+            }}
+          />
+        )}
+      </MenuItem>
     );
 
-    return channels;
+    return items;
+  }, []);
+
+  const makeRoomItems = usersList.reduce((items, channel) => {
+    if (channel.id === user.id) return items;
+
+    const isSelected = Boolean(newDMUsers[channel.id]);
+
+    items.push(
+      <ListItemButton
+        key={`user-${channel.id}`}
+        selected={isSelected}
+        onClick={() => onChannelSelect(channel.id, "users")}
+        sx={{
+          borderRadius: 1,
+          mb: 1,
+          px: 1.5,
+          py: 1,
+          bgcolor: isSelected ? "action.selected" : "transparent",
+          "&.Mui-selected:hover": { bgcolor: "action.selected" },
+        }}
+      >
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={1.5}
+          sx={{ flexGrow: 1, minWidth: 0 }}
+        >
+          <ChannelName
+            short
+            channelType="users"
+            channel={channel}
+            user={user}
+          />
+        </Stack>
+      </ListItemButton>
+    );
+
+    return items;
   }, []);
 
   const messages = channel.messages.map((message) => (
     <Message message={message} socket={socket} key={message.id} />
   ));
 
+  // const closeChatTab = () => {
+  //   setShowChatTab(false);
+  //   localStorage.setItem("showChatTab", false);
+  // }; // TODO: Remove comments
+
+  if (!token) return null;
+
   return (
-    token && (
-      <NotificationHolder
-        className="chat-wrapper"
-        notifCount={chatInfo.notifs.all}
+    <Paper
+      elevation={4}
+      sx={{
+        width: "100%",
+        overflow: "hidden",
+        bgcolor:
+          theme.palette.mode === "dark"
+            ? theme.palette.background.paper
+            : theme.palette.background.default,
+      }}
+    >
+      <Stack
+        direction="row"
+        alignItems="center"
+        spacing={1.5}
+        sx={{
+          color: theme.palette.primary.contrastText,
+        }}
       >
-        <div className="top-bar" onClick={onTopBarClick}>
-          <i className="fas fa-comment" />
-          <div className="label">Chat</div>
-        </div>
-        {showWindow && (
-          <div className="window">
-            <div className="left-panel">
-              <div className="channel-type-nav">
-                <NotificationHolder
-                  className={`channel-type ${
-                    currentTab === "rooms" ? "sel" : ""
-                  }`}
-                  notifCount={chatInfo.notifs.byChannelType["rooms"]}
-                  onClick={() => onTabClick("rooms")}
-                >
-                  Rooms
-                </NotificationHolder>
-                <NotificationHolder
-                  className={`channel-type ${
-                    currentTab === "directs" ? "sel" : ""
-                  }`}
-                  notifCount={chatInfo.notifs.byChannelType["directs"]}
-                  onClick={() => onTabClick("directs")}
-                >
-                  Directs
-                </NotificationHolder>
-                <div
-                  className={`channel-type ${
-                    currentTab === "users" ? "sel" : ""
-                  }`}
-                  onClick={() => onTabClick("users")}
-                >
-                  Users
-                </div>
-              </div>
-              {currentTab === "users" && (
-                <input
-                  className="user-search"
-                  value={userSearchVal}
-                  placeholder={"Search"}
-                  onChange={onUserSearch}
+        <Badge
+          color="error"
+          overlap="circular"
+          badgeContent={
+            chatInfo.notifs.all > 0
+              ? chatInfo.notifs.all > 99
+                ? "99+"
+                : chatInfo.notifs.all
+              : null
+          }
+        ></Badge>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+          Chat
+        </Typography>
+        <Box sx={{ flexGrow: 1 }} />
+        <Select
+          size="small"
+          value={currentChannelId || (navEntries[0]?.channel.id ?? "")}
+          onChange={(event) => {
+            const value = event.target.value;
+            const entry = navEntries.find((item) => item.channel.id === value);
+            if (entry) onChannelSelect(value, entry.type);
+          }}
+          renderValue={(value) => {
+            const entry = navEntries.find((item) => item.channel.id === value);
+            if (!entry) {
+              return (
+                <Typography variant="body2" color="text.secondary">
+                  No chats available
+                </Typography>
+              );
+            }
+            return (
+              <ChannelName
+                short
+                channelType={entry.type}
+                channel={entry.channel}
+                user={user}
+              />
+            );
+          }}
+          sx={{
+            minWidth: 160,
+            bgcolor: theme.palette.background.paper,
+            borderRadius: 1,
+            "& .MuiSelect-select": { display: "flex", alignItems: "center" },
+          }}
+          disabled={navEntries.length === 0}
+        >
+          {navChannelItems}
+        </Select>
+        <Button
+          size="small"
+          variant="contained"
+          color="secondary"
+          onClick={onOpenNewChatDialog}
+        >
+          New
+        </Button>
+      </Stack>
+
+      <Box
+        className="chat-window"
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          height: 480,
+          backgroundColor: theme.palette.background.paper,
+        }}
+      >
+        <Box
+          sx={{
+            flexGrow: 1,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          {channel.id && (
+            <>
+              <Box
+                className="channel-messages"
+                ref={messageListRef}
+                onScroll={onMessagesScroll}
+                sx={{
+                  flexGrow: 1,
+                  overflowY: "auto",
+                  px: 2,
+                  py: 1,
+                  backgroundColor: theme.palette.background.default,
+                }}
+              >
+                {messages}
+              </Box>
+
+              <Box
+                sx={{
+                  px: 2,
+                  py: 1.5,
+                  borderTop: `1px solid ${theme.palette.divider}`,
+                  bgcolor: theme.palette.background.paper,
+                }}
+              >
+                <TextField
+                  value={textInput}
+                  onChange={(e) => setTextInput(e.target.value)}
+                  onKeyPress={onSendMessage}
+                  placeholder="Send message"
+                  fullWidth
+                  size="small"
+                  inputProps={{ maxLength: MaxChatMessageLength }}
                 />
-              )}
-              <div className="channel-list">{channels}</div>
-              {currentTab === "users" && Object.keys(newDMUsers).length > 0 && (
-                <div
-                  className="create-dm-btn btn btn-theme"
-                  onClick={onCreateDM}
-                >
-                  <i className="fas fa-plus" />
-                  Create DM ({Object.keys(newDMUsers).length})
-                </div>
-              )}
-            </div>
-            <div className="right-panel">
-              {channel.id && (
-                <>
-                  <div className="channel-top">
-                    <div className="channel-name">
-                      <ChannelName
-                        channelType={channel.public ? "rooms" : "directs"}
-                        channel={channel}
-                        user={user}
-                      />
-                    </div>
-                    {!channel.public && (
-                      <i
-                        className="close-dm fas fa-times"
-                        onClick={() => onCloseDM(channel.id)}
-                      />
-                    )}
-                  </div>
-                  <div
-                    className="channel-messages"
-                    ref={messageListRef}
-                    onScroll={onMessagesScroll}
-                  >
-                    {messages}
-                  </div>
-                  <div className="channel-input-wrapper">
-                    <input
-                      className="channel-input"
-                      value={textInput}
-                      maxLength={MaxChatMessageLength}
-                      onChange={(e) => setTextInput(e.target.value)}
-                      onKeyPress={onSendMessage}
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-      </NotificationHolder>
-    )
+              </Box>
+            </>
+          )}
+        </Box>
+      </Box>
+
+      <Dialog open={newChatDialogOpen} onClose={onCloseNewChatDialog} fullWidth>
+        <DialogTitle>Start New Chat</DialogTitle>
+        <DialogContent dividers>
+          <TextField
+            value={userSearchVal}
+            onChange={onUserSearch}
+            placeholder="Search users"
+            fullWidth
+            size="small"
+            sx={{ mb: 2 }}
+          />
+          <List
+            disablePadding
+            sx={{
+              maxHeight: 300,
+              overflowY: "auto",
+            }}
+          >
+            {makeRoomItems.length ? (
+              makeRoomItems
+            ) : (
+              <Box
+                sx={{
+                  py: 6,
+                  textAlign: "center",
+                  color: "text.secondary",
+                }}
+              >
+                <Typography variant="body2">
+                  No users found. Try another search.
+                </Typography>
+              </Box>
+            )}
+          </List>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={onCloseNewChatDialog}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              onCreateDM();
+              onCloseNewChatDialog();
+            }}
+            disabled={Object.keys(newDMUsers).length === 0}
+          >
+            Create DM ({Object.keys(newDMUsers).length})
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Paper>
   );
 }
 
@@ -461,6 +636,7 @@ function Message(props) {
   const user = useContext(UserContext);
   const isSelf = message.sender.id === user.id;
   const age = Date.now() - message.date;
+  const showTimestamp = age > 1000 * 60;
 
   useOnOutsideClick(messageRef, () => setShowContextMenu(false));
 
@@ -493,46 +669,82 @@ function Message(props) {
     socket.send("deleteMessage", message.id);
   }
 
+  const textColorOverride =
+    !user.settings?.ignoreTextColor &&
+    message.sender.settings &&
+    message.sender.settings.textColor
+      ? message.sender.settings.textColor
+      : null;
+
   return (
-    <div className={`message ${isSelf ? "self" : ""}`}>
-      <div className="info">
-        {!isSelf && (
-          <NameWithAvatar
-            small
-            id={message.sender.id}
-            name={message.sender.name}
-            avatar={message.sender.avatar}
-            color={message.sender.settings && message.sender.settings.nameColor}
-            groups={message.sender.groups}
-          />
-        )}
-        {age > 1000 * 60 && (
-          <div className="timestamp">
-            <Time millisec={age} suffix=" ago" />
-          </div>
-        )}
-      </div>
-      <div
-        className="content"
-        style={
-          !user.settings?.ignoreTextColor &&
-          message.sender.settings &&
-          message.sender.settings.textColor
-            ? { color: message.sender.settings.textColor }
-            : {}
-        }
-        onContextMenu={onMessageClick}
-        ref={messageRef}
+    <Box
+      className={`message ${isSelf ? "self" : ""}`}
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        gap: 1.25,
+        px: 2,
+        py: 1,
+        borderRadius: 1.5,
+        maxWidth: "100%",
+        transition: "background-color 120ms ease",
+        "&:hover": {
+          backgroundColor: "action.hover",
+        },
+      }}
+    >
+      <Stack
+        direction="row"
+        spacing={1}
+        alignItems="center"
+        sx={{ flexWrap: "wrap", flexGrow: 1, minWidth: 0 }}
       >
-        {/* {linkify(message.content)} */}
-        <UserText
-          text={message.content}
-          settings={user.settings}
-          filterProfanity
-          linkify
-          emotify
+        <NameWithAvatar
+          small
+          id={message.sender.id}
+          name={message.sender.name}
+          avatar={message.sender.avatar}
+          color={message.sender.settings && message.sender.settings.nameColor}
+          groups={message.sender.groups}
+          vanityUrl={message.sender.vanityUrl}
+          noLink={isSelf}
         />
-      </div>
+        <Typography
+          variant="body2"
+          component="span"
+          className="content"
+          onContextMenu={onMessageClick}
+          ref={messageRef}
+          sx={{
+            flexGrow: 1,
+            minWidth: 0,
+            display: "inline-flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            wordBreak: "break-word",
+            whiteSpace: "pre-wrap",
+            color: textColorOverride || "inherit",
+          }}
+        >
+          <UserText
+            text={message.content}
+            settings={user.settings}
+            filterProfanity
+            linkify
+            emotify
+            roleify
+          />
+        </Typography>
+        {showTimestamp && (
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ whiteSpace: "nowrap" }}
+          >
+            <Time millisec={age} suffix=" ago" />
+          </Typography>
+        )}
+      </Stack>
       {showContextMenu &&
         (user.id === message.sender.id || user.perms.deleteChatMessage) && (
           <div className="context" ref={contextMenuRef}>
@@ -541,7 +753,7 @@ function Message(props) {
             </div>
           </div>
         )}
-    </div>
+    </Box>
   );
 }
 
@@ -553,7 +765,15 @@ function ChannelName(props) {
 
   switch (channelType) {
     case "rooms":
-      return channel.name;
+      return (
+        <Typography
+          variant={short ? "body2" : "subtitle1"}
+          noWrap={short}
+          sx={{ fontWeight: short ? 500 : 600 }}
+        >
+          {channel.name}
+        </Typography>
+      );
     case "directs":
       if (short) {
         var memberNames = channel.members
@@ -562,33 +782,43 @@ function ChannelName(props) {
         var name = memberNames.join(", ");
 
         if (memberNames.length > 1 && name.length > 20)
-          name = name.slice(0, 17) + "...";
+          name = name.slice(0, 17) + "…";
 
-        return name;
+        return (
+          <Typography variant="body2" noWrap sx={{ fontWeight: 500 }}>
+            {name}
+          </Typography>
+        );
       } else {
         var members = channel.members.filter((m) => m.id !== user.id);
-        return members.map((m) => (
-          <NameWithAvatar
-            small
-            id={m.id}
-            name={m.name}
-            avatar={m.avatar}
-            key={m.id}
-          />
-        ));
+        return (
+          <Stack direction="row" spacing={1} alignItems="center">
+            {members.map((m) => (
+              <NameWithAvatar
+                small
+                id={m.id}
+                name={m.name}
+                avatar={m.avatar}
+                vanityUrl={m.vanityUrl}
+                key={m.id}
+              />
+            ))}
+          </Stack>
+        );
       }
     case "users":
       return (
-        <>
+        <Stack direction="row" spacing={1} alignItems="center">
           <NameWithAvatar
             small
             noLink
             id={channel.id}
             name={channel.name}
             avatar={channel.avatar}
+            vanityUrl={channel.vanityUrl}
           />
           <StatusIcon status={channel.status} />
-        </>
+        </Stack>
       );
   }
 }

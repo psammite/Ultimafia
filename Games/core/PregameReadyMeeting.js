@@ -2,7 +2,7 @@ const Meeting = require("./Meeting");
 
 module.exports = class PregameReadyMeeting extends Meeting {
   constructor(game) {
-    super(game, "Pregame Ready");
+    super(game, "Are you ready?");
 
     this.group = true;
     this.voting = true;
@@ -52,7 +52,9 @@ module.exports = class PregameReadyMeeting extends Meeting {
     );
 
     for (let member of this.members)
-      member.player.sendAlert(`${voter.name} is ready.`);
+      member.player.sendAlert(`${voter.name} is ready.`, undefined, undefined, [
+        "info",
+      ]);
 
     this.checkAllPlayersReady();
   }

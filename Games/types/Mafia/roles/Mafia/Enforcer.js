@@ -6,9 +6,10 @@ module.exports = class Enforcer extends Role {
     this.alignment = "Mafia";
     this.cards = [
       "VillageCore",
-      "WinWithMafia",
-      "MeetingMafia",
-      "CureAllMadness",
+      "WinWithFaction",
+      "MeetingFaction",
+
+      "NightConvertBlocker",
     ];
   }
 };

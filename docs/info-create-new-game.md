@@ -1,6 +1,6 @@
 # Adding a new Game Mode
 
-We currently have five game modes: Mafia, Resistance, One Night, Split Decision and Ghost. To create a new game,
+We currently have twelve game modes: Mafia, Resistance, Secret Dictator, Acrotopia, Jotto, Wacky Words, Liars Dice, Battlesnakes, Texas Hold Em, Cheat, Connect Four, and Dice Wars. To create a new game,
 
 - Make child classes of core
 - Update constants.js and constants.jsx
@@ -8,3 +8,5 @@ We currently have five game modes: Mafia, Resistance, One Night, Split Decision 
 - Update settings checks in game.js
 - Add roles to role data
 - Add roles to role css
+- Add game type host fields to react_main/components/gameTypeHostForms
+- Add game type default host fields to react_main/components/gameTypeHostForms/DefaultValues.js

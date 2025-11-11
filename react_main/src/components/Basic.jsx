@@ -1,15 +1,16 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useContext } from "react";
 
 import { emotify } from "./Emotes";
 import { filterProfanitySegment } from "../lib/profanity";
 import { MediaEmbed } from "../pages/User/User";
 import { slangList } from "../constants/slangList";
 import { Slang } from "./Slang";
+import { Typography } from "@mui/material";
+import { SiteInfoContext } from "../Contexts";
+import { InlineRoleMention } from "./Roles";
 
 export function ItemList(props) {
-  const items = props.items;
-  const itemRows = items.map(props.map);
-
+  const itemRows = props.items.map(props.map);
   return <div className={`item-list ${props.className || ""}`}>{itemRows}</div>;
 }
 
@@ -27,34 +28,41 @@ export function PanelGrid(props) {
 }
 
 export function Time(props) {
-  var unit = "millisecond";
-  var value = props.millisec;
-  var suffix = props.suffix || "";
-  var minSec = props.minSec;
+  let unit = "millisecond";
+  let value = props.millisec;
+  const suffix = props.suffix || "";
+  const minSec = props.minSec;
+  const abbreviate = props.abbreviate;
 
   const units = [
     {
       name: "second",
+      abbrevation: "s",
       scale: 1000,
     },
     {
       name: "minute",
+      abbrevation: "min",
       scale: 60,
     },
     {
       name: "hour",
+      abbrevation: "h",
       scale: 60,
     },
     {
       name: "day",
+      abbrevation: "d",
       scale: 24,
     },
     {
       name: "week",
+      abbrevation: "w",
       scale: 7,
     },
     {
       name: "year",
+      abbrevation: "y",
       scale: 52,
     },
   ];
@@ -62,17 +70,26 @@ export function Time(props) {
   let i = 0;
   while (i < units.length - 1 && value >= units[i].scale) {
     value /= units[i].scale;
-    unit = units[i].name;
+    unit = abbreviate ? units[i].abbrevation : units[i].name;
     i++;
   }
 
-  if (minSec && unit === "millisecond") return `Less than a second${suffix}`;
+  if (minSec && unit === "millisecond") {
+    if (abbreviate) {
+      return `<1s${suffix}`;
+    } else {
+      return `Less than a second${suffix}`;
+    }
+  }
 
   value = Math.floor(value);
 
-  if (value > 1) unit += "s";
-
-  return `${value} ${unit}${suffix}`;
+  if (abbreviate) {
+    return `${value}${unit}${suffix}`;
+  } else {
+    if (value > 1) unit += "s";
+    return `${value} ${unit}${suffix}`;
+  }
 }
 
 export function NotificationHolder(props) {
@@ -100,7 +117,61 @@ export function NotificationHolder(props) {
   );
 }
 
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildRoleRegex(siteInfo) {
+  const roles = siteInfo?.roles?.Mafia || [];
+  const names = roles.map((r) => r.name).sort((a, b) => b.length - a.length);
+  if (names.length === 0) return null;
+  const pattern = names.map((n) => escapeRegex(n)).join("|");
+  // Use negative lookbehind and lookahead to exclude matches adjacent to apostrophes
+  return new RegExp(`(?<!')\\b(${pattern})\\b(?!')`, "gi");
+}
+
+function roleifySegments(text, siteInfo) {
+  if (text == null) return;
+  if (!Array.isArray(text)) text = [text];
+
+  const roles = siteInfo?.roles?.Mafia || [];
+  const nameMap = new Map(roles.map((r) => [r.name.toLowerCase(), r.name]));
+  const regex = buildRoleRegex(siteInfo);
+  if (!regex) return text;
+
+  for (let i in text) {
+    let segment = text[i];
+    if (typeof segment !== "string") continue;
+
+    const parts = [];
+    let lastIndex = 0;
+    regex.lastIndex = 0;
+    let match = regex.exec(segment);
+    while (match) {
+      const before = segment.slice(lastIndex, match.index);
+      if (before) parts.push(before);
+      const matched = match[0];
+      const canonical = nameMap.get(matched.toLowerCase()) || matched;
+      parts.push(
+        <InlineRoleMention
+          roleName={canonical}
+          key={`${match.index}-${canonical}`}
+        />
+      );
+      lastIndex = regex.lastIndex;
+      match = regex.exec(segment);
+    }
+    const after = segment.slice(lastIndex);
+    if (after) parts.push(after);
+    text[i] = parts.length ? parts : segment;
+  }
+
+  text = text.flat();
+  return text.length === 1 ? text[0] : text;
+}
+
 export function UserText(props) {
+  const siteInfo = useContext(SiteInfoContext);
   const [content, setContent] = useState(props.text);
 
   useEffect(() => {
@@ -120,7 +191,7 @@ export function UserText(props) {
 
     // Any effects that inject elements need to be added after this point because the text property changes
     // throughout this useEffect function
-    if (props.emotify) text = emotify(text);
+    if (props.emotify) text = emotify(text, props.customEmotes);
 
     if (props.slangify)
       text = slangify({
@@ -129,6 +200,8 @@ export function UserText(props) {
         displayEmoji: props.terminologyEmoticons,
       });
     if (props.iconUsername) text = iconUsername(text, props.players);
+
+    if (props.roleify) text = roleifySegments(text, siteInfo);
 
     setContent(text);
   }, [props.text, props.terminologyEmoticons]);
@@ -164,6 +237,7 @@ export function linkify(text) {
         <a
           href={regexRes[0]}
           target="_blank"
+          rel="noopener noreferrer nofollow"
           key={lastIndex}
           onClick={onLinkCLick}
         >
@@ -308,7 +382,9 @@ function InlineAvatar(props) {
       className="avatar small inline"
       title={props.username}
       style={{ backgroundImage: props.url }}
-    />
+    >
+      &#8203;
+    </div>
   );
 }
 
@@ -330,23 +406,6 @@ export function useOnOutsideClick(refs, action) {
       document.removeEventListener("click", onOutsideClick);
     };
   }, refs);
-}
-export function basicRenderers() {
-  return {
-    text: (props) => {
-      return emotify(props.value);
-    },
-    image: (props) => {
-      if (
-        /\.(webm|mp4|mp3|ogg)$/.test(props.src) ||
-        youtubeRegex.test(props.src)
-      ) {
-        return <MediaEmbed mediaUrl={props.src} />;
-      } else {
-        return <img alt={props.value} src={props.src} />;
-      }
-    },
-  };
 }
 
 export const youtubeRegex =

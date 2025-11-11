@@ -10,6 +10,12 @@ module.exports = class ConvertKillToBleed extends Card {
     this.listeners = {
       immune: function (action) {
         if (
+          !(this.name == "Bleeder" && this.hasAbility(["OnlyWhenAlive"])) &&
+          !this.hasAbility(["Modifier", "OnlyWhenAlive"])
+        ) {
+          return;
+        }
+        if (
           action.target === this.player &&
           action.hasLabel("kill") &&
           !this.player.tempImmunity["kill"]
@@ -26,6 +32,21 @@ module.exports = class ConvertKillToBleed extends Card {
           }
 
           this.player.giveEffect("Bleeding", action.actor);
+        }
+      },
+      AbilityToggle: function (player) {
+        if (player != this.player) {
+          return;
+        }
+        if (
+          (this.name == "Bleeder" && this.hasAbility(["OnlyWhenAlive"])) ||
+          this.hasAbility(["Modifier", "OnlyWhenAlive"])
+        ) {
+          this.immunity.kill = 1;
+          this.cancelImmunity.bleed = Infinity;
+        } else {
+          this.immunity.kill = 0;
+          this.cancelImmunity.bleed = 0;
         }
       },
     };

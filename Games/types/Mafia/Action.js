@@ -1,6 +1,10 @@
 const Action = require("../../core/Action");
 const Random = require("../../../lib/Random");
 const Player = require("../../core/Player");
+const {
+  PRIORITY_SELF_BLOCK_EARLY,
+  PRIORITY_SELF_BLOCK_LATER,
+} = require("./const/Priority");
 
 module.exports = class MafiaAction extends Action {
   constructor(options) {
@@ -11,6 +15,12 @@ module.exports = class MafiaAction extends Action {
     power = power || 1;
     target = target || this.target;
 
+    if (this.actor.role.name === "Doctor") {
+      if (target.docImmunity) {
+        target.docImmunity.push({ saver: this.actor.user.id, immune: true });
+      }
+    }
+
     target.setTempImmunity("kill", power);
   }
 
@@ -19,10 +29,27 @@ module.exports = class MafiaAction extends Action {
     target = target || this.target;
 
     target.setTempImmunity("poison", power);
+    for (let effect of target.effects) {
+      if (effect.isMalicious == true) {
+        effect.remove();
+      }
+    }
+    /*
     target.removeEffect("Poison", true);
     target.removeEffect("Bleeding", true);
+    target.removeEffect("BleedingCult", true);
     target.removeEffect("Insanity", true);
     target.removeEffect("Polarised", true);
+    target.removeEffect("Gasoline", true);
+    target.removeEffect("Gassed", true);
+    target.removeEffect("Lovesick", true);
+    target.removeEffect("Zombification", true);
+    target.removeEffect("CannotRoleShare", true);
+    target.removeEffect("MustRoleShare", true);
+    target.removeEffect("Virus", true);
+    target.removeEffect("Alcoholic", true);
+    target.removeEffect("Lycan", true);
+    */
   }
 
   preventConvert(power, target) {
@@ -32,11 +59,14 @@ module.exports = class MafiaAction extends Action {
     target.setTempImmunity("convert", power);
   }
 
-  blockActions(target, label) {
+  blockActions(target, label, exclude) {
     target = target || this.target;
 
     for (let action of this.game.actions[0]) {
       if (label && !action.hasLabel(label)) {
+        continue;
+      }
+      if (exclude && action.hasLabel(exclude)) {
         continue;
       }
 
@@ -46,11 +76,85 @@ module.exports = class MafiaAction extends Action {
     }
   }
 
-  makeUntargetable(player, excludeLabel) {
+  blockWithDelirium(target, fromEffect) {
+    target = target || this.target;
+    let hasInvestigate = false;
+    if (fromEffect != true) {
+      this.role.giveEffect(target, "Delirious", this.actor, 1, null, this.role);
+    }
+    this.game.events.emit("AbilityToggle", target);
+    for (let action of this.game.actions[0]) {
+      if (action.hasLabel("investigate")) {
+        hasInvestigate = true;
+        continue;
+      }
+
+      if (
+        action.priority > this.priority &&
+        (target.hasItem("IsTheBraggart") ||
+          target.hasItem("IsTheTelevangelist"))
+      ) {
+        if (
+          action.hasLabel("kill") &&
+          action.hasLabel("condemn") &&
+          action.hasLabel("hidden") &&
+          !action.hasLabel("overthrow")
+        ) {
+          continue;
+        }
+        action.deliriumActor(target);
+      } else if (
+        action.priority > this.priority &&
+        !action.hasLabel("absolute")
+      ) {
+        action.deliriumActor(target);
+      }
+    }
+    // target.giveEffect("FalseMode", 1);
+  }
+
+  deliriumActor(acter) {
+    var actorIndex = this.actors.indexOf(acter);
+    if (actorIndex == -1) return;
+    let curRun = this.run;
+    let tempRun = function () {
+      let canRun = false;
+      for (let actor of this.actors) {
+        if (!actor.hasEffect("Delirious")) {
+          canRun = true;
+        } else {
+          this.cancelActor(actor);
+        }
+      }
+      //this.game.queueAlert("Succuess")
+      if (canRun == true) {
+        curRun();
+      }
+    };
+    this.run = tempRun.bind(this);
+    //this.actors.splice(actorIndex, 1);
+    /*
+    if (this.actors.length == 0) {
+      this.do = () => {};
+      this.actors = [];
+      delete this.target;
+    }
+    */
+  }
+
+  makeUntargetable(player, excludeLabel, excludeAlignment) {
     player = player || this.target;
 
     for (let action of this.game.actions[0]) {
       if (action.hasLabel("absolute") || action.hasLabel(excludeLabel)) {
+        continue;
+      }
+
+      if (action.priority <= this.priority) {
+        continue;
+      }
+
+      if (action.actor && action.actor.role.alignment == excludeAlignment) {
         continue;
       }
 
@@ -72,18 +176,18 @@ module.exports = class MafiaAction extends Action {
 
     var visits = [];
     for (let action of this.game.actions[0]) {
+      let toCheck = action.target;
+      if (!Array.isArray(action.target)) {
+        toCheck = [action.target];
+      }
+
       if (
         action.actors.indexOf(player) != -1 &&
         !action.hasLabel("hidden") &&
         action.target &&
-        action.target instanceof Player
+        toCheck[0] instanceof Player
       ) {
-        let targets = action.target;
-        if (!Array.isArray(action.target)) {
-          targets = [action.target];
-        }
-
-        visits.push(...targets);
+        visits.push(...toCheck);
       }
     }
 
@@ -105,7 +209,11 @@ module.exports = class MafiaAction extends Action {
       }
 
       for (let target of toCheck) {
-        if (target === player && !action.hasLabel("hidden")) {
+        if (
+          target === player &&
+          !action.hasLabel("hidden") &&
+          action.actors.length > 0
+        ) {
           visitors.push(...action.actors);
         }
       }
@@ -129,7 +237,11 @@ module.exports = class MafiaAction extends Action {
       }
 
       for (let target of toCheck) {
-        if (target === player && !action.hasLabel("hidden")) {
+        if (
+          target === player &&
+          !action.hasLabel("hidden") &&
+          action.actors.length > 0
+        ) {
           return true;
         }
       }
@@ -275,8 +387,8 @@ module.exports = class MafiaAction extends Action {
 
     let alert = "";
     switch (effectName) {
-      case "InLoveWith":
-        alert = `:love: You fall deathly in love with ${extra}.`;
+      case "Lovesick":
+        alert = `:love: You fall in love with ${extra}.`;
         break;
       default:
         alert = `You have received an effect: ${effectName}!`;
@@ -387,15 +499,76 @@ module.exports = class MafiaAction extends Action {
       case "Cult":
         return "Cultist";
       default:
-        // independent and hostile
+        // independent
         return "Grouch";
     }
   }
 
   isVanillaRole(player) {
     player = player || this.target;
-    if (player.role.name === this.getVanillaRole(player)) {
+    if (
+      player.role.name === this.getVanillaRole(player) &&
+      player.role.modifier === ""
+    ) {
       return true;
+    }
+    return false;
+  }
+
+  blockingMods(role) {
+    for (let action of this.game.actions[0]) {
+      if (action.hasLabel("absolute")) {
+        continue;
+      }
+      if (action.hasLabel("mafia")) {
+        continue;
+      }
+
+      let toCheck = action.target;
+      if (!Array.isArray(action.target)) {
+        toCheck = [action.target];
+      }
+      if (
+        action.actors.indexOf(this.actor) != -1 &&
+        action.target &&
+        toCheck[0] instanceof Player
+      ) {
+        for (let y = 0; y < toCheck.length; y++) {
+          if (!role.canTargetPlayer(toCheck[y])) {
+            if (
+              action.priority > this.priority &&
+              !action.hasLabel("absolute")
+            ) {
+              action.cancelActor(this.actor);
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  isSelfBlock(isTargetBased) {
+    for (let action of this.game.actions[0]) {
+      if (action.hasLabel("absolute")) {
+        continue;
+      }
+      if (action.hasLabel("mafia")) {
+        continue;
+      }
+      let toCheck = action.target;
+      if (!Array.isArray(action.target)) {
+        toCheck = [action.target];
+      }
+      if (
+        action.actors.indexOf(this.actor) != -1 &&
+        action.target &&
+        toCheck[0] instanceof Player
+      ) {
+        if (action.priority && action.priority <= PRIORITY_SELF_BLOCK_LATER) {
+          return true;
+        }
+      }
     }
     return false;
   }

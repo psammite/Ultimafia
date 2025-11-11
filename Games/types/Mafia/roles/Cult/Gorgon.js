@@ -7,9 +7,9 @@ module.exports = class Gorgon extends Role {
     this.alignment = "Cult";
     this.cards = [
       "VillageCore",
-      "WinWithCult",
-      "MeetingCult",
-      "EnqueueVisitors",
+      "WinWithFaction",
+      "MeetingFaction",
+      "GorgonMarkVisitors",
       "CountVisitors",
       "TurnToStone",
     ];

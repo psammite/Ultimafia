@@ -5,34 +5,42 @@ const { PRIORITY_KILL_DEFAULT } = require("../const/Priority");
 module.exports = class Polarised extends Effect {
   constructor(bear) {
     super("Polarised");
+    this.isMalicious = true;
 
     this.bear = bear;
     this.listeners = {
-      actionsNext: function () {
-        if (!this.player.alive) return;
+      state: function (stateInfo) {
+        if (this.game.getStateName() != "Night") {
+          this.game.HasDonePolarisedAction = false;
+          return;
+        }
+        if (this.game.HasDonePolarisedAction == true) {
+          return;
+        }
+        this.game.HasDonePolarisedAction = true;
 
-        if (this.game.getStateName() != "Night") return;
-
-        let action = new Action({
-          actor: this.player,
-          target: this.player,
-          effect: this,
-          game: this.game,
+        var action = new Action({
+          actor: this.bear,
+          game: this.player.game,
           priority: PRIORITY_KILL_DEFAULT,
-          labels: ["kill", "polarised", "hidden", "absolute"],
+          labels: ["kill", "hidden", "absolute"],
           run: function () {
-            let visitors = this.getVisitors(this.actor);
-            for (let v of visitors) {
-              if (!v.hasEffect("Polarised")) {
-                continue;
-              }
+            for (let player of this.game.players) {
+              let visitors = this.getVisitors(player);
+              if (player.hasEffect("Polarised")) {
+                for (let v of visitors) {
+                  if (!v.hasEffect("Polarised")) {
+                    continue;
+                  }
 
-              if (this.dominates(this.actor)) {
-                this.actor.kill("polarised", this.effect.bear);
-              }
+                  if (this.dominates(player)) {
+                    player.kill("polarised", this.actor);
+                  }
 
-              if (this.dominates(v)) {
-                v.kill("polarised", this.effect.bear);
+                  if (this.dominates(v)) {
+                    v.kill("polarised", this.actor);
+                  }
+                }
               }
             }
           },

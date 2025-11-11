@@ -8,6 +8,13 @@ module.exports = class Effect {
     this.cancelImmunity = {};
     this.actions = [];
     this.listeners = {};
+    this.winCheck = {
+      priority: 0,
+      check: (counts, winners) => {
+        // winners.addPlayer(this.player, null or "group")
+        // Return true to stop checking for other winners
+      },
+    };
     this.disabledMeetings = [];
     this.lifespan = Infinity;
     this.ageListener;
@@ -19,12 +26,13 @@ module.exports = class Effect {
     this.player.effects.push(this);
 
     this.ageListener = this.age.bind(this);
-    this.game.events.on("state", this.ageListener);
+    this.game.events.on("effectAge", this.ageListener);
 
     for (let eventName in this.listeners) {
       this.listeners[eventName] = this.listeners[eventName].bind(this);
       this.game.events.on(eventName, this.listeners[eventName]);
     }
+    this.winCheck.check = this.winCheck.check.bind(this);
 
     this.game.events.emit("applyEffect", this, player);
   }
@@ -36,7 +44,9 @@ module.exports = class Effect {
 
     for (let meeting of this.disabledMeetings) meeting.disabled = false;
 
-    this.game.events.removeListener("state", this.ageListener);
+    this.game.events.removeListener("effectAge", this.ageListener);
+
+    this.source = null;
 
     for (let eventName in this.listeners)
       this.player.events.removeListener(eventName, this.listeners[eventName]);

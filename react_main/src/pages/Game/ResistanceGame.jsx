@@ -9,15 +9,21 @@ import {
   PlayerList,
   Timer,
   SpeechFilter,
+  SettingsMenu,
   Notes,
+  PinnedMessages,
+  MobileLayout,
+  GameTypeContext,
 } from "./Game";
 import { GameContext } from "../../Contexts";
 
 import { SideMenu } from "./Game";
-import "../../css/game.css";
+import "css/game.css";
+import { useIsPhoneDevice } from "hooks/useIsPhoneDevice";
 
 export default function ResistanceGame(props) {
   const game = useContext(GameContext);
+  const isPhoneDevice = useIsPhoneDevice();
 
   const history = game.history;
   const updateHistory = game.updateHistory;
@@ -83,94 +89,60 @@ export default function ResistanceGame(props) {
   }, game.socket);
 
   return (
-    <>
-      <TopBar
-        gameType={gameType}
-        setup={game.setup}
-        history={history}
-        stateViewing={stateViewing}
-        updateStateViewing={updateStateViewing}
-        players={players}
-        socket={game.socket}
-        options={game.options}
-        spectatorCount={game.spectatorCount}
-        setLeave={game.setLeave}
-        finished={game.finished}
-        review={game.review}
-        setShowSettingsModal={game.setShowSettingsModal}
-        setRehostId={game.setRehostId}
-        noLeaveRef={game.noLeaveRef}
-        dev={game.dev}
-        gameName={<div className="game-name">Resistance</div>}
-        timer={<Timer timers={game.timers} history={history} />}
-      />
+    <GameTypeContext.Provider
+      value={{
+        singleState: false,
+      }}
+    >
+      <TopBar />
       <ThreePanelLayout
         leftPanelContent={
           <>
-            <PlayerList
-              players={players}
-              history={history}
-              gameType={gameType}
-              stateViewing={stateViewing}
-              activity={game.activity}
-            />
-            <SpeechFilter
-              filters={game.speechFilters}
-              setFilters={game.setSpeechFilters}
-              stateViewing={stateViewing}
-            />
+            <PlayerList />
+            <SpeechFilter />
+            <SettingsMenu />
           </>
         }
-        centerPanelContent={
-          <>
-            <TextMeetingLayout
-              socket={game.socket}
-              history={history}
-              updateHistory={updateHistory}
-              players={players}
-              stateViewing={stateViewing}
-              settings={game.settings}
-              filters={game.speechFilters}
-              options={game.options}
-              setup={game.setup}
-              // agoraClient={game.agoraClient}
-              localAudioTrack={game.localAudioTrack}
-              setActiveVoiceChannel={game.setActiveVoiceChannel}
-              muted={game.muted}
-              setMuted={game.setMuted}
-              deafened={game.deafened}
-              setDeafened={game.setDeafened}
-            />
-          </>
-        }
+        centerPanelContent={<TextMeetingLayout />}
         rightPanelContent={
           <>
-            <ScoreKeeper
-              numMissions={game.setup.numMissions}
-              history={history}
-              stateViewing={stateViewing}
-            />
-            <ActionList
-              socket={game.socket}
-              meetings={meetings}
-              players={players}
-              self={self}
-              history={history}
-              stateViewing={stateViewing}
-            />
-            {!isSpectator && <Notes stateViewing={stateViewing} />}
+            <ScoreKeeper />
+            <ActionList />
+            <PinnedMessages />
+            <Notes />
           </>
         }
       />
-    </>
+      <MobileLayout
+        outerLeftContent={
+          <>
+            <PlayerList />
+            <SpeechFilter />
+          </>
+        }
+        innerRightContent={
+          <>
+            <ScoreKeeper />
+            <ActionList />
+          </>
+        }
+        additionalInfoContent={
+          <>
+            <PinnedMessages />
+            <Notes />
+          </>
+        }
+      />
+    </GameTypeContext.Provider>
   );
 }
 
-function ScoreKeeper(props) {
-  const numMissions = props.numMissions;
-  const history = props.history;
+function ScoreKeeper() {
+  const game = useContext(GameContext);
 
-  const stateViewing = props.stateViewing;
+  const numMissions = game.numMissions;
+  const history = game.history;
+  const stateViewing = game.stateViewing;
 
   if (stateViewing < 0) return <></>;
 

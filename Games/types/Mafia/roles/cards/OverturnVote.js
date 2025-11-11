@@ -1,4 +1,5 @@
 const Card = require("../../Card");
+const Player = require("../../../../core/Player");
 const { PRIORITY_OVERTHROW_VOTE } = require("../../const/Priority");
 
 module.exports = class OverturnVote extends Card {
@@ -8,13 +9,65 @@ module.exports = class OverturnVote extends Card {
     this.meetings = {
       "Overturn Vote": {
         meetingName: "Overturn",
-        states: ["Overturn"],
+        states: ["Dusk"],
         flags: ["group", "speech", "voting", "anonymousVotes"],
         targets: { include: ["alive"], exclude: ["dead", "self"] },
+        shouldMeet: function () {
+          //skip if town is trying to condemn mafia under don
+          if (this.player.alive && this.player.role.name == "Don") {
+            for (let action of this.game.actions[0]) {
+              if (
+                action.hasLabel("condemn") &&
+                action.target.role.alignment == "Mafia"
+              ) {
+                return false;
+              }
+              //don cannot OT away from don
+              if (
+                action.hasLabel("condemn") &&
+                action.target.role.name == "Don"
+              ) {
+                return false;
+              }
+            }
+            //return true;
+          }
+
+          if (!this.overturnsLeft) {
+            return false;
+          }
+          if (!this.player.alive) {
+            return false;
+          }
+
+          let isNoVote = true;
+          for (let action of this.game.actions[0]) {
+            if (
+              action.hasLabel("condemn") &&
+              !action.hasLabel("overthrow") &&
+              action.target instanceof Player
+            ) {
+              isNoVote = false;
+              break;
+            }
+          }
+
+          if (isNoVote) {
+            return false;
+          }
+
+          for (let player of this.game.players) {
+            if (!player.hasItem("OverturnSpectator")) {
+              player.holdItem("OverturnSpectator");
+            }
+          }
+          return true;
+        },
         leader: true,
         action: {
           power: 3,
           labels: ["kill", "condemn", "overthrow"],
+          role: this.role,
           priority: PRIORITY_OVERTHROW_VOTE,
           run: function () {
             for (let action of this.game.actions[0]) {
@@ -33,7 +86,7 @@ module.exports = class OverturnVote extends Card {
               this.target.kill("condemn", this.actor);
             }
 
-            --this.actor.role.overturnsLeft;
+            --this.role.overturnsLeft;
           },
         },
       },
@@ -44,6 +97,7 @@ module.exports = class OverturnVote extends Card {
         type: "delayActions",
         delayActions: true,
       },
+      /*
       Overturn: {
         type: "add",
         index: 4,
@@ -55,6 +109,13 @@ module.exports = class OverturnVote extends Card {
               if (
                 action.hasLabel("condemn") &&
                 action.target.alignment == "Mafia"
+              ) {
+                return true;
+              }
+              //don cannot OT away from don
+              if (
+                action.hasLabel("condemn") &&
+                action.target.role.name == "Don"
               ) {
                 return true;
               }
@@ -89,6 +150,7 @@ module.exports = class OverturnVote extends Card {
           return false;
         },
       },
+      */
     };
   }
 };

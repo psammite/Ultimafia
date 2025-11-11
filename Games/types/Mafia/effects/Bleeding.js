@@ -5,6 +5,7 @@ module.exports = class Bleeding extends Effect {
   constructor(killer) {
     super("Bleeding");
     this.killer = killer;
+    this.isMalicious = true;
   }
 
   apply(player) {
@@ -13,7 +14,7 @@ module.exports = class Bleeding extends Effect {
     }
 
     super.apply(player);
-    player.queueAlert("You start to bleed...");
+    player.queueAlert("You start to bleed…");
 
     this.action = new Action({
       actor: this.killer,
@@ -23,6 +24,9 @@ module.exports = class Bleeding extends Effect {
       delay: 1,
       effect: this,
       run: function () {
+        if (!this.target.hasEffect("Bleeding")) {
+          return;
+        }
         if (this.dominates()) {
           this.target.kill("bleed", this.actor);
         }

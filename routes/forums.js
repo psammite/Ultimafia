@@ -5,11 +5,15 @@ const constants = require("../data/constants");
 const models = require("../db/models");
 const routeUtils = require("./utils");
 const redis = require("../modules/redis");
+const { getBasicUserInfo } = require("../modules/redis");
 const logger = require("../modules/logging")(".");
 const router = express.Router();
 
 router.get("/categories", async function (req, res) {
   res.setHeader("Content-Type", "application/json");
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   try {
     var userId = await routeUtils.verifyLoggedIn(req, true);
     var rank = userId ? await redis.getUserRank(userId) : 0;
@@ -21,7 +25,8 @@ router.get("/categories", async function (req, res) {
         populate: [
           {
             path: "newestThreads",
-            select: "id author title viewCount replyCount deleted -_id",
+            select:
+              "id author title postDate viewCount replyCount deleted -_id",
             match: { deleted: false },
             populate: {
               path: "author",
@@ -176,22 +181,34 @@ router.get("/thread/:id", async function (req, res) {
     var page = Number(req.query.page) || 1;
     var reply = String(req.query.reply || "");
 
+    // First, get the thread to calculate page count
+    var thread = await models.ForumThread.findOne({ id: threadId })
+      .populate("board", "id name -_id")
+      .populate("author", "id -_id");
+
+    if (!thread) {
+      res.status(500);
+      res.send("Thread not found.");
+      return;
+    }
+
+    // Handle "last" page parameter
+    if (req.query.page === "last") {
+      page = Math.ceil(thread.replyCount / constants.repliesPerPage) || 1;
+    }
+
     if (reply) {
       reply = await models.ForumReply.findOne({ id: reply }).select("page");
 
       if (reply) page = reply.page;
     }
 
-    var thread = await models.ForumThread.findOne({ id: threadId })
-      .populate("board", "id name -_id")
-      .populate("author", "id -_id");
-
     var canViewDeleted = await routeUtils.verifyPermission(
       userId,
       "viewDeleted"
     );
 
-    if (!thread || (thread.deleted && !canViewDeleted)) {
+    if (thread.deleted && !canViewDeleted) {
       res.status(500);
       res.send("Thread not found.");
       return;
@@ -240,6 +257,17 @@ router.get("/thread/:id", async function (req, res) {
         }).select("direction");
         reply.vote = (vote && vote.direction) || 0;
       }
+
+      // Add subscription status for current user
+      var subscribers = thread.subscribers || [];
+      thread.isSubscribed = subscribers.indexOf(userId) !== -1;
+
+      // Get subscriber user info for popover
+      thread.subscriberUsers = await Promise.all(
+        subscribers.map(async (subId) => {
+          return await redis.getBasicUserInfo(subId, true);
+        })
+      );
     }
 
     res.send(thread);
@@ -254,6 +282,36 @@ router.get("/thread/:id", async function (req, res) {
     logger.error(e);
     res.status(500);
     res.send("Error loading thread.");
+  }
+});
+
+router.get("/vote/:id/:direction?", async function (req, res) {
+  try {
+    const userId = await routeUtils.verifyLoggedIn(req);
+    if (!(await routeUtils.verifyPermission(res, userId, "viewVotes"))) return;
+
+    const search = {
+      item: req.params.id,
+    };
+    if (req.params.direction) {
+      search.direction = parseInt(req.params.direction);
+    }
+    const votes = await models.ForumVote.aggregate([
+      { $match: search },
+      { $project: { voter: 1, direction: 1 } },
+    ]);
+
+    const mappedVotes = await Promise.all(
+      votes.map(async (e) => {
+        e.voter = await getBasicUserInfo(e.voter, true);
+        return e;
+      })
+    );
+    res.status(200);
+    res.send(votes);
+  } catch (e) {
+    res.status(500);
+    res.send("Error getting votes.");
   }
 });
 
@@ -449,6 +507,47 @@ router.post("/thread", async function (req, res) {
       bumpDate: Date.now(),
     });
     await thread.save();
+
+    // Create poll if poll data is provided
+    if (req.body.poll) {
+      const pollData = req.body.poll;
+
+      // Validate poll data
+      if (
+        !pollData.question ||
+        !pollData.options ||
+        !Array.isArray(pollData.options)
+      ) {
+        // Don't fail thread creation, just skip poll
+        logger.warn("Invalid poll data provided for thread", thread.id);
+      } else if (pollData.options.length < 2 || pollData.options.length > 10) {
+        logger.warn("Invalid poll option count for thread", thread.id);
+      } else {
+        // Parse expiration time
+        var expiresAt = null;
+        if (pollData.expiration) {
+          var expirationLength = routeUtils.parseTime(
+            String(pollData.expiration)
+          );
+          if (expirationLength && expirationLength !== Infinity) {
+            expiresAt = Date.now() + expirationLength;
+          }
+        }
+
+        var poll = new models.Poll({
+          id: shortid.generate(),
+          threadId: thread.id,
+          lobby: null, // Thread polls don't have lobbies
+          title: pollData.question,
+          question: pollData.question,
+          options: pollData.options,
+          creator: userId,
+          created: Date.now(),
+          expiresAt: expiresAt,
+        });
+        await poll.save();
+      }
+    }
 
     await models.ForumBoard.updateOne(
       { id: boardId },
@@ -723,13 +822,13 @@ router.post("/thread/edit", async function (req, res) {
 
 router.post("/thread/notify", async function (req, res) {
   try {
+    var userId = await routeUtils.verifyLoggedIn(req);
     var threadId = String(req.body.thread);
 
     var thread = await models.ForumThread.findOne({
       id: threadId,
-      author: req.session.user._id,
       deleted: false,
-    }).select("replyNotify");
+    }).select("author subscribers replyNotify");
 
     if (!thread) {
       res.status(500);
@@ -737,10 +836,31 @@ router.post("/thread/notify", async function (req, res) {
       return;
     }
 
-    await models.ForumThread.updateOne(
-      { id: threadId },
-      { $set: { replyNotify: !thread.replyNotify } }
-    ).exec();
+    // Check if user is the author
+    var isAuthor = String(thread.author) === String(req.session.user._id);
+    var subscribers = thread.subscribers || [];
+    var isSubscribed = subscribers.indexOf(userId) !== -1;
+
+    if (isAuthor) {
+      // Author toggles replyNotify (backward compatibility)
+      await models.ForumThread.updateOne(
+        { id: threadId },
+        { $set: { replyNotify: !thread.replyNotify } }
+      ).exec();
+    } else {
+      // Non-author toggles subscription
+      if (isSubscribed) {
+        await models.ForumThread.updateOne(
+          { id: threadId },
+          { $pull: { subscribers: userId } }
+        ).exec();
+      } else {
+        await models.ForumThread.updateOne(
+          { id: threadId },
+          { $addToSet: { subscribers: userId } }
+        ).exec();
+      }
+    }
 
     res.sendStatus(200);
   } catch (e) {
@@ -810,7 +930,7 @@ router.post("/reply", async function (req, res) {
       id: threadId,
       deleted: false,
     })
-      .select("board author replyCount locked replyNotify")
+      .select("board author replyCount locked replyNotify subscribers")
       .populate("board", "id rank")
       .populate("author", "id");
 
@@ -909,6 +1029,7 @@ router.post("/reply", async function (req, res) {
       }
     }
 
+    // Notify thread author if they have notifications enabled
     if (thread.replyNotify && thread.author.id != userId) {
       routeUtils.createNotification(
         {
@@ -917,6 +1038,23 @@ router.post("/reply", async function (req, res) {
           link: `/community/forums/thread/${threadId}?reply=${reply.id}`,
         },
         [thread.author.id]
+      );
+    }
+
+    // Notify all subscribers (excluding the reply author)
+    var subscribers = thread.subscribers || [];
+    var subscribersToNotify = subscribers.filter(
+      (subId) => subId !== userId && subId !== thread.author.id
+    );
+
+    if (subscribersToNotify.length > 0) {
+      routeUtils.createNotification(
+        {
+          content: `${userName} replied to a thread you're following.`,
+          icon: "reply",
+          link: `/community/forums/thread/${threadId}?reply=${reply.id}`,
+        },
+        subscribersToNotify
       );
     }
 
@@ -1199,21 +1337,158 @@ router.post("/vote", async function (req, res) {
 router.get("/search", async function (req, res) {
   res.setHeader("Content-Type", "application/json");
   try {
-    var query = String(req.query.query);
-    var user = String(req.query.user);
-    var last = String(req.query.last);
+    var userId = await routeUtils.verifyLoggedIn(req, true);
+    var rank = userId ? await redis.getUserRank(userId) : 0;
+    var canViewDeleted = await routeUtils.verifyPermission(
+      userId,
+      "viewDeleted"
+    );
 
-    var threads = await models.ForumThread.find({})
-      .select("id author title content")
-      .populate("author", "id name avatar");
-    var replies = await models.ForumReply.find()
-      .select("id author thread content")
-      .populate("author", "id name avatar")
-      .populate("thread", "title");
+    var query = String(req.query.query || "");
+    var username = String(req.query.username || "");
+    var boardId = String(req.query.boardId || "");
+    var page = Number(req.query.page) || 1;
+    var limit = Number(req.query.limit) || 20;
+    var skip = (page - 1) * limit;
+
+    // Build search filters
+    var threadFilter = {};
+    var replyFilter = {};
+
+    // Board filter
+    if (boardId) {
+      var board = await models.ForumBoard.findOne({ id: boardId })
+        .select("_id rank")
+        .populate("category", "rank");
+
+      if (!board || board.category.rank > rank) {
+        res.status(500);
+        res.send("Board not found or access denied.");
+        return;
+      }
+
+      threadFilter.board = board._id;
+      replyFilter.thread = {
+        $in: await models.ForumThread.find({ board: board._id }).select("_id"),
+      };
+    }
+
+    // User filter
+    if (username) {
+      var user = await models.User.findOne({
+        name: new RegExp(username, "i"),
+      }).select("_id");
+      if (user) {
+        threadFilter.author = user._id;
+        replyFilter.author = user._id;
+      } else {
+        // If user not found, return empty results
+        res.send({
+          threads: [],
+          replies: [],
+          totalThreads: 0,
+          totalReplies: 0,
+          page: page,
+          totalPages: 0,
+        });
+        return;
+      }
+    }
+
+    // Content search filter
+    if (query) {
+      var contentRegex = new RegExp(
+        query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        "i"
+      );
+      threadFilter.$or = [{ title: contentRegex }, { content: contentRegex }];
+      replyFilter.content = contentRegex;
+    }
+
+    // Deleted content filter
+    if (!canViewDeleted) {
+      threadFilter.deleted = false;
+      replyFilter.deleted = false;
+    }
+
+    // Get threads
+    var threads = await models.ForumThread.find(threadFilter)
+      .select(
+        "id author title content postDate bumpDate replyCount voteCount viewCount board -_id"
+      )
+      .populate("author", "id name avatar -_id")
+      .populate("board", "id name -_id")
+      .sort("-bumpDate")
+      .skip(skip)
+      .limit(limit);
+
+    // Get replies
+    var replies = await models.ForumReply.find(replyFilter)
+      .select("id author thread content postDate voteCount -_id")
+      .populate("author", "id name avatar -_id")
+      .populate({
+        path: "thread",
+        select: "id title board -_id",
+        populate: {
+          path: "board",
+          select: "id name -_id",
+        },
+      })
+      .sort("-postDate")
+      .skip(skip)
+      .limit(limit);
+
+    // Get total counts for pagination
+    var totalThreads = await models.ForumThread.countDocuments(threadFilter);
+    var totalReplies = await models.ForumReply.countDocuments(replyFilter);
+
+    // Process results
+    for (let i in threads) {
+      let thread = threads[i].toJSON();
+      thread.author = await redis.getBasicUserInfo(thread.author.id, true);
+      threads[i] = thread;
+    }
+
+    for (let i in replies) {
+      let reply = replies[i].toJSON();
+      reply.author = await redis.getBasicUserInfo(reply.author.id, true);
+      replies[i] = reply;
+    }
+
+    res.send({
+      threads: threads,
+      replies: replies,
+      totalThreads: totalThreads,
+      totalReplies: totalReplies,
+      page: page,
+      totalPages: Math.ceil(Math.max(totalThreads, totalReplies) / limit),
+    });
   } catch (e) {
     logger.error(e);
     res.status(500);
-    res.send("Error voting.");
+    res.send("Error searching forums.");
+  }
+});
+
+router.get("/search/boards", async function (req, res) {
+  res.setHeader("Content-Type", "application/json");
+  try {
+    var userId = await routeUtils.verifyLoggedIn(req, true);
+    var rank = userId ? await redis.getUserRank(userId) : 0;
+
+    var boards = await models.ForumBoard.find({})
+      .select("id name category -_id")
+      .populate("category", "id name rank -_id")
+      .sort("name");
+
+    // Filter boards by user rank
+    boards = boards.filter((board) => board.category.rank <= rank);
+
+    res.send(boards);
+  } catch (e) {
+    logger.error(e);
+    res.status(500);
+    res.send([]);
   }
 });
 

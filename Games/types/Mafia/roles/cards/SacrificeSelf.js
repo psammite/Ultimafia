@@ -1,19 +1,24 @@
 const Card = require("../../Card");
-const { PRIORITY_REDIRECT_ACTION } = require("../../const/Priority");
+const { PRIORITY_NIGHT_SAVER } = require("../../const/Priority");
 
 module.exports = class SacrificeSelf extends Card {
   constructor(role) {
     super(role);
 
     this.meetings = {
-      "Sacrifice Self": {
+      Replace: {
+        actionName: "Save",
         states: ["Night"],
         flags: ["voting"],
         action: {
-          priority: PRIORITY_REDIRECT_ACTION,
+          labels: ["save"],
+          priority: PRIORITY_NIGHT_SAVER,
+          role: this.role,
           run: function () {
-            this.actor.role.protectingTarget = this.target;
-            this.target.giveEffect("KillImmune", 5, 1);
+            this.role.savedPlayer = this.target;
+
+            // power 5, lifespan 1
+            this.target.giveEffect("CondemnImmune", 5, 1);
           },
         },
       },
@@ -21,17 +26,17 @@ module.exports = class SacrificeSelf extends Card {
 
     this.listeners = {
       state: function () {
-        if (this.game.getStateName() == "Day") {
-          delete this.protectingTarget;
+        if (this.game.getStateName() == "Night") {
+          delete this.savedPlayer;
         }
       },
       immune: function (action, player) {
-        if (player != this.protectingTarget) {
+        if (player != this.savedPlayer) {
           return;
         }
 
-        if (action.hasLabel("kill")) {
-          this.player.kill("sacrifice", this.player);
+        if (action.hasLabel("condemn")) {
+          this.player.kill("condemn", this.actor);
         }
       },
     };

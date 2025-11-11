@@ -7,12 +7,33 @@ module.exports = class Spy extends Role {
     this.alignment = "Mafia";
     this.cards = [
       "VillageCore",
-      "WinWithMafia",
-      "MeetingMafia",
+      "WinWithFaction",
+      "MeetingFaction",
+
       "ContactByRole",
     ];
     this.meetingMods = {
       Village: {
+        speechAbilities: [
+          {
+            name: "Contact",
+            targetsDescription: { include: ["all"], exclude: ["self"] },
+            targetType: "role",
+            verb: "",
+          },
+        ],
+      },
+      "Room 1": {
+        speechAbilities: [
+          {
+            name: "Contact",
+            targetsDescription: { include: ["all"], exclude: ["self"] },
+            targetType: "role",
+            verb: "",
+          },
+        ],
+      },
+      "Room 2": {
         speechAbilities: [
           {
             name: "Contact",

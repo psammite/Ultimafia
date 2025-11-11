@@ -1,5 +1,5 @@
 const Role = require("../../Role");
-const { PRIORITY_LEADER_DISGUISER } = require("../../const/Priority");
+const { PRIORITY_LEADER_DEFAULT } = require("../../const/Priority");
 
 module.exports = class Disguiser extends Role {
   constructor(player, data) {
@@ -8,13 +8,14 @@ module.exports = class Disguiser extends Role {
     this.alignment = "Mafia";
     this.cards = [
       "VillageCore",
-      "WinWithMafia",
-      "MeetingMafia",
+      "WinWithFaction",
+      "MeetingFaction",
+
       "IdentityStealer",
     ];
     this.meetingMods = {
       Mafia: {
-        leader: PRIORITY_LEADER_DISGUISER,
+        leader: PRIORITY_LEADER_DEFAULT,
       },
     };
   }

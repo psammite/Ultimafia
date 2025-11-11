@@ -1,3 +1,5 @@
+#!/usr/bin/bash
+
 echo "Welcome to the Ultimafia complete setup!"
 echo "----------------------------------------"
 
@@ -85,24 +87,21 @@ echo "Then add: 127.0.0.1 to the list of Authorized domains, and save it."
 echo "Press Enter when you are done."
 read endVar
 
-echo "Great! Now the rest of this should be automatic... please wait..."
+echo "Great! Now the rest of this should be automatic… please wait…"
 
-export NVM_DIR=~/nvm;
-source $NVM_DIR/nvm.sh;
+# We use the appropriate Node/NPM versions then install the backend dependencies
+source ~/nvm/nvm.sh
+nvm install 22.17.0
+nvm use 22.17.0
+nvm alias default 22.17.0
+npm install
 
-nvm install 14.16.0
-nvm use 14.16.0
+# Download front-end dependencies and build
+cd react_main
+npm install
+bash build.sh
+cd ..
 
-# Specify the name of the file
-file_name="package.json"
-
-if [ -f "$file_name" ]; then
-    # Use jq to update the "proxy" value
-    jq '.proxy = "http://backend:3000"' "$file_name" > tmpfile && mv tmpfile "$file_name"
-    echo "Proxy value updated in $file_name"
-else
-    echo "Error: File $file_name not found"
-fi
-
-
-docker-compose up --build
+# Build and deploy the containers
+docker compose -f docker-compose-core.yml -f docker-compose-dev.yml up -d
+# Script done!

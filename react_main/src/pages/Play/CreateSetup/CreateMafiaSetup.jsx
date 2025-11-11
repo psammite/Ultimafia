@@ -2,7 +2,7 @@ import React, { useContext, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import axios from "axios";
 
-import CreateSetup from "./CreateSetup";
+import CreateBrowser from "./CreateBrowser";
 import { SiteInfoContext } from "../../../Contexts";
 import { useForm } from "../../../components/Form";
 import { useErrorAlert } from "../../../components/Alerts";
@@ -17,57 +17,6 @@ export default function CreateMafiaSetup() {
       label: "Setup Name",
       ref: "name",
       type: "text",
-    },
-    {
-      label: "Day Start",
-      ref: "startState",
-      type: "boolean",
-    },
-    {
-      label: "Dawn",
-      ref: "dawn",
-      type: "boolean",
-    },
-    {
-      label: "Whispers",
-      ref: "whispers",
-      value: false,
-      type: "boolean",
-    },
-    {
-      label: "Whisper Leak Percentage",
-      ref: "leakPercentage",
-      type: "number",
-      value: "5",
-      min: "0",
-      max: "100",
-      showIf: "whispers",
-    },
-    {
-      label: "Last Wills",
-      ref: "lastWill",
-      value: false,
-      type: "boolean",
-    },
-    {
-      label: "Must Act",
-      ref: "mustAct",
-      type: "boolean",
-    },
-    {
-      label: "Must Condemn",
-      ref: "mustCondemn",
-      type: "boolean",
-    },
-    {
-      label: "No Reveal",
-      ref: "noReveal",
-      type: "boolean",
-    },
-    {
-      label: "Votes Invisible",
-      ref: "votesInvisible",
-      type: "boolean",
     },
     {
       label: "Closed Roles",
@@ -129,13 +78,50 @@ export default function CreateMafiaSetup() {
       showIf: ["closed", "!useRoleGroups"],
     },
     {
-      label: "Hostile Count",
-      ref: "count-Hostile",
+      label: "Prompt Text",
+      ref: "gameStartPrompt",
+      type: "text",
+    },
+    {
+      label: "Events Per Night",
+      ref: "EventsPerNight",
       type: "number",
-      value: "0",
+      value: "1",
       min: "0",
-      max: "50",
-      showIf: ["closed", "!useRoleGroups"],
+      max: "5",
+    },
+    {
+      label: "States With No Death",
+      ref: "noDeathLimit",
+      type: "number",
+      value: "6",
+      min: "2",
+      max: "8",
+    },
+    {
+      label: "Force Must Act",
+      ref: "ForceMustAct",
+      value: true,
+      type: "boolean",
+    },
+    {
+      label: "Game End Event",
+      ref: "GameEndEvent",
+      type: "select",
+      options: [
+        {
+          label: "Meteor",
+          value: "Meteor",
+        },
+        {
+          label: "Volcanic Eruption",
+          value: "Volcanic Eruption",
+        },
+        {
+          label: "Black Hole",
+          value: "Black Hole",
+        },
+      ],
     },
   ]);
 
@@ -149,33 +135,30 @@ export default function CreateMafiaSetup() {
     document.title = "Create Mafia Setup | UltiMafia";
   }, []);
 
-  function onCreateSetup(roleData, editing, setRedirect) {
+  function onCreateSetup(roleData, editing, setRedirect, gameSettings) {
     axios
-      .post("/setup/create", {
+      .post("/api/setup/create", {
         gameType: gameType,
         roles: roleData.roles,
         closed: roleData.closed,
+        gameSettings: gameSettings,
         name: formFields[0].value,
-        startState: formFields[1].value ? "Day" : "Night",
-        dawn: formFields[2].value,
-        whispers: formFields[3].value,
-        leakPercentage: Number(formFields[4].value),
-        lastWill: formFields[5].value,
-        mustAct: formFields[6].value,
-        mustCondemn: formFields[7].value,
-        noReveal: formFields[8].value,
-        votesInvisible: formFields[9].value,
-        unique: formFields[11].value,
-        uniqueWithoutModifier: formFields[12].value,
+        startState: "Night",
+        unique: formFields[2].value,
+        uniqueWithoutModifier: formFields[3].value,
         useRoleGroups: roleData.useRoleGroups,
         roleGroupSizes: roleData.roleGroupSizes,
         count: {
-          Village: Number(formFields[14].value),
-          Mafia: Number(formFields[15].value),
-          Cult: Number(formFields[16].value),
-          Independent: Number(formFields[17].value),
-          Hostile: Number(formFields[18].value),
+          Village: Number(formFields[5].value),
+          Mafia: Number(formFields[6].value),
+          Cult: Number(formFields[7].value),
+          Independent: Number(formFields[8].value),
         },
+        gameStartPrompt: formFields[9].value,
+        EventsPerNight: formFields[10].value,
+        noDeathLimit: formFields[11].value,
+        ForceMustAct: formFields[12].value,
+        GameEndEvent: formFields[13].value,
         editing: editing,
         id: params.get("edit"),
       })
@@ -189,14 +172,17 @@ export default function CreateMafiaSetup() {
       .catch(errorAlert);
   }
 
+  var closed = formFields.find((x) => x.label === "Closed Roles");
+  var roleGroups = formFields.find((x) => x.label === "Role Groups");
+
   return (
-    <CreateSetup
+    <CreateBrowser
       gameType={gameType}
       formFields={formFields}
       updateFormFields={updateFormFields}
       resetFormFields={resetFormFields}
-      closedField={formFields[10]}
-      useRoleGroupsField={formFields[13]}
+      closedField={closed}
+      useRoleGroupsField={roleGroups}
       formFieldValueMods={formFieldValueMods}
       onCreateSetup={onCreateSetup}
     />

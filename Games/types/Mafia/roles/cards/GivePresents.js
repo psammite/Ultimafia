@@ -1,5 +1,5 @@
 const Card = require("../../Card");
-const { PRIORITY_ITEM_GIVER_DEFAULT } = require("../../const/Priority");
+const { PRIORITY_ITEM_GIVER_EARLY } = require("../../const/Priority");
 
 module.exports = class GivePresents extends Card {
   constructor(role) {
@@ -11,16 +11,17 @@ module.exports = class GivePresents extends Card {
         flags: ["voting"],
         action: {
           labels: ["giveItem"],
-          priority: PRIORITY_ITEM_GIVER_DEFAULT,
+          role: this.role,
+          priority: PRIORITY_ITEM_GIVER_EARLY,
           run: function () {
-            let itemType = this.actor.role.data.itemType;
+            let itemType = this.role.data.itemType;
             if (!itemType) {
               return;
             }
 
             this.target.holdItem(itemType);
             this.target.queueGetItemAlert(itemType);
-            delete this.actor.role.data.itemType;
+            delete this.role.data.itemType;
           },
         },
       },
@@ -28,11 +29,27 @@ module.exports = class GivePresents extends Card {
         states: ["Night"],
         flags: ["voting"],
         inputType: "custom",
-        targets: ["Gun", "Armor", "Knife", "Crystal", "Whiskey", "Bread"],
+        targets: [
+          "Gun",
+          "Armor",
+          "Bomb",
+          "Knife",
+          "Crystal",
+          "Whiskey",
+          "Bread",
+          "Key",
+          "Falcon",
+          "Tract",
+          "Envelope",
+          "Syringe",
+          "Coffee",
+          "Shield",
+        ],
         action: {
-          priority: PRIORITY_ITEM_GIVER_DEFAULT - 1,
+          role: this.role,
+          priority: PRIORITY_ITEM_GIVER_EARLY - 1,
           run: function () {
-            this.actor.role.data.itemType = this.target;
+            this.role.data.itemType = this.target;
           },
         },
       },

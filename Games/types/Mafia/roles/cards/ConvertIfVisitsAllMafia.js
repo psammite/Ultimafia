@@ -1,5 +1,9 @@
 const Card = require("../../Card");
-const { PRIORITY_KILL_DEFAULT } = require("../../const/Priority");
+const Action = require("../../Action");
+const {
+  PRIORITY_SUPPORT_VISIT_DEFAULT,
+  PRIORITY_BECOME_DEAD_ROLE,
+} = require("../../const/Priority");
 const roles = require("../../../../../data/roles");
 const Random = require("../../../../../lib/Random");
 
@@ -23,37 +27,20 @@ module.exports = class ConvertIfVisitsAllMafia extends Card {
           exclude: [this.methods.excludeAlreadyVisited, "self"],
         },
         action: {
-          priority: PRIORITY_KILL_DEFAULT,
+          role: this.role,
+          priority: PRIORITY_SUPPORT_VISIT_DEFAULT,
           run: function () {
             // record already visited
-            if (this.actor.role.visitedMentors.has(this.target)) {
+            if (this.role.visitedMentors.has(this.target)) {
               return;
             }
-            this.actor.role.visitedMentors.add(this.target);
+            this.role.visitedMentors.add(this.target);
 
             if (this.target.role.alignment == "Mafia") {
               this.actor.queueAlert(
-                "You successfully trained with a member of the Mafia..."
+                "You successfully trained with a member of the Mafia…"
               );
             }
-
-            const aliveVisitedMafiosos = Array.from(
-              this.actor.role.visitedMentors
-            ).filter((p) => p.role.alignment === "Mafia" && p.alive);
-            const aliveMafiosos = this.game
-              .alivePlayers()
-              .filter((p) => p.role.alignment === "Mafia");
-
-            if (aliveVisitedMafiosos.length !== aliveMafiosos.length) {
-              return;
-            }
-
-            const randomMafiaRole = Random.randArrayVal(
-              Object.entries(roles.Mafia)
-                .filter((roleData) => roleData[1].alignment === "Mafia")
-                .map((roleData) => roleData[0])
-            );
-            this.actor.setRole(randomMafiaRole);
           },
         },
       },
@@ -66,6 +53,44 @@ module.exports = class ConvertIfVisitsAllMafia extends Card {
         }
 
         this.visitedMentors = new Set();
+      },
+      state: function (stateInfo) {
+        if (!this.hasAbility(["Convert"])) {
+          return;
+        }
+
+        if (!stateInfo.name.match(/Night/)) {
+          return;
+        }
+
+        var action = new Action({
+          actor: this.player,
+          game: this.player.game,
+          role: this,
+          priority: PRIORITY_BECOME_DEAD_ROLE,
+          labels: ["convert"],
+          run: function () {
+            const aliveVisitedMafiosos = Array.from(
+              this.role.visitedMentors
+            ).filter((p) => p.role.alignment === "Mafia" && p.alive);
+            const aliveMafiosos = this.game
+              .alivePlayers()
+              .filter((p) => p.role.alignment === "Mafia");
+
+            if (aliveVisitedMafiosos.length !== aliveMafiosos.length) {
+              return;
+            }
+
+            const randomMafiaRole = Random.randArrayVal(
+              this.role
+                .getAllRoles()
+                .filter((r) => this.game.getRoleAlignment(r) == "Mafia")
+            );
+            this.actor.setRole(randomMafiaRole);
+          },
+        });
+
+        this.game.queueAction(action);
       },
     };
   }

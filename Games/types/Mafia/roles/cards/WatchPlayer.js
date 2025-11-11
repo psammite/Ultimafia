@@ -1,4 +1,5 @@
 const Card = require("../../Card");
+const Random = require("../../../../../lib/Random");
 const {
   PRIORITY_INVESTIGATIVE_AFTER_RESOLVE_DEFAULT,
 } = require("../../const/Priority");
@@ -9,25 +10,23 @@ module.exports = class WatchPlayer extends Card {
 
     this.meetings = {
       Watch: {
-        actionName: "Watch (no visit)",
+        actionName: "Watch",
         states: ["Night"],
         flags: ["voting"],
         targets: { include: ["alive"], exclude: [] },
         action: {
-          labels: ["investigate", "hidden"],
-          priority: PRIORITY_INVESTIGATIVE_AFTER_RESOLVE_DEFAULT,
+          labels: ["investigate"],
+          priority: PRIORITY_INVESTIGATIVE_AFTER_RESOLVE_DEFAULT - 5,
           run: function () {
-            let visitors = this.getVisitors(this.target);
-            let visitorNames = visitors.map((player) => player.name);
-            if (visitorNames.length === 0) {
-              visitorNames.push("no one");
-            }
-
-            this.actor.queueAlert(
-              `:look: ${this.target.name} was visited by ${visitorNames.join(
-                ", "
-              )} during the night.`
+            let info = this.game.createInformation(
+              "WatcherInfo",
+              this.actor,
+              this.game,
+              this.target
             );
+            info.processInfo();
+
+            this.actor.queueAlert(`:watch: ${info.getInfoFormated()}`);
           },
         },
       },

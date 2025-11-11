@@ -5,6 +5,12 @@ module.exports = class Jailer extends Role {
     super("Jailer", player, data);
 
     this.alignment = "Village";
-    this.cards = ["VillageCore", "WinWithVillage", "JailTarget"];
+    this.cards = [
+      "VillageCore",
+      "WinWithFaction",
+      "MeetingFaction",
+      "JailTarget",
+      "AddDusk",
+    ];
   }
 };

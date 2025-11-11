@@ -84,7 +84,15 @@ module.exports = class Timebomb extends Item {
       [this.baseMeetingName]: {
         actionName: "Pass Timebomb to",
         states: ["Day"],
-        flags: ["voting", "instant", "noVeg", "hideAfterVote", "mustAct"],
+        flags: [
+          "voting",
+          "instant",
+          "noVeg",
+          "hideAfterVote",
+          "mustAct",
+          "Important",
+        ],
+        item: this,
         targets: { include: ["alive"], exclude: ["self"] },
         action: {
           labels: ["giveItem", "bomb"],
@@ -94,7 +102,7 @@ module.exports = class Timebomb extends Item {
             this.item.hold(this.target);
 
             this.game.queueAlert(
-              `:timebomb: ${this.actor.name} passes the bomb to ${this.target.name}...`
+              `:timebomb: ${this.actor.name} passes the bomb to ${this.target.name}…`
             );
             this.item.incrementMeetingName();
             this.game.instantMeeting(this.item.meetings, [this.target]);

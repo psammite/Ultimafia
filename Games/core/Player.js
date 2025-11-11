@@ -11,6 +11,12 @@ const constants = require("../../data/constants");
 const logger = require("../../modules/logging")("games");
 const dbStats = require("../../db/stats");
 const roleData = require("../../data/roles");
+const gameAchievements = require("../../data/Achievements");
+const DailyChallengeData = require("../../data/DailyChallenge");
+const itemData = require("../../data/items");
+const modifierData = require("../../data/modifiers");
+const commandData = require("../../data/commands");
+const axios = require("axios");
 
 module.exports = class Player {
   constructor(user, game, isBot) {
@@ -24,17 +30,33 @@ module.exports = class Player {
     this.isBot = isBot;
     this.events = game.events;
     this.role = null;
+    this.faction = null;
+    this.factionFake = null;
     this.alive = true;
+    this.exorcised = false;
     this.data = {};
     this.items = [];
+    this.startingItems = [];
     this.effects = [];
+    this.passiveEffects = [];
+    this.AchievementTracker = [];
+    this.DailyTracker = [];
+    this.EarnedAchievements = [];
+    this.DailyPayout = 0;
+    this.DailyCompleted = 0;
+    this.CompletedDailyChallenges = [];
     this.tempImmunity = {};
     this.tempAppearance = {};
+    this.tempAppearanceMods = {};
     this.history = new History(this.game, this);
     this.ready = false;
     this.won = false;
     this.deathMessages = deathMessages;
     this.revivalMessages = revivalMessages;
+    this.docImmunity = [];
+    this.ExtraRoles = [];
+    this.passiveExtraRoles = [];
+    this.joinTime = Date.now(); // Track when player joined for host reassignment
   }
 
   init() {
@@ -55,6 +77,7 @@ module.exports = class Player {
       textColor: this.user.textColor,
       nameColor: this.user.nameColor,
       hasAvatar: this.user.avatar,
+      customEmotes: this.user.customEmotes,
     };
 
     this.id = shortid.generate();
@@ -65,19 +88,41 @@ module.exports = class Player {
     this.user.settings.deathMessage = deckProfile.deathMessage;
     delete this.user.id;
     delete this.user.nameColor;
+    delete this.user.customEmotes;
   }
 
   makeNotAnonymous() {
     let p = this.originalProfile;
 
-    this.game.sendAlert(`${p.name}'s anonymous name was ${this.name}.`);
+    this.game.sendAlert(
+      `${p.name}'s anonymous name was ${this.name}.`,
+      undefined,
+      undefined,
+      ["info"]
+    );
 
     this.user.id = p.userId;
     this.name = p.name;
     this.user.avatar = p.hasAvatar;
     this.user.textColor = p.textColor;
     this.user.nameColor = p.nameColor;
+    this.user.customEmotes = p.customEmotes;
     delete this.anonId;
+  }
+
+  async handleError(e) {
+    var stack = e.stack.split("\n").slice(0, 6).join("\n");
+    const discordAlert = JSON.parse(process.env.DISCORD_ERROR_HOOK);
+    await axios({
+      method: "post",
+      url: discordAlert.hook,
+      data: {
+        content: `Error stack: \`\`\` ${stack}\`\`\`\nSetup: ${this.game.setup.name} (${this.game.setup.id})\nGame Link: ${process.env.BASE_URL}/game/${this.game.id}/review`,
+        username: "Errorbot",
+        attachments: [],
+        thread_name: `Game Error! ${e}`,
+      },
+    });
   }
 
   socketListeners() {
@@ -144,6 +189,7 @@ module.exports = class Player {
         });
       } catch (e) {
         logger.error(e);
+        // this.handleError(e);
       }
     });
 
@@ -155,6 +201,7 @@ module.exports = class Player {
         quote.toMeetingId = String(quote.toMeetingId);
         quote.fromMeetingId = String(quote.fromMeetingId);
         quote.fromState = String(quote.fromState);
+        quote.messageContent = String(quote.messageContent);
 
         if (!Utils.validProp(quote.messageId)) return;
 
@@ -183,6 +230,7 @@ module.exports = class Player {
         meeting.quote(this, quote);
       } catch (e) {
         logger.error(e);
+        // this.handleError(e);
       }
     });
 
@@ -214,9 +262,16 @@ module.exports = class Player {
         var meeting = this.game.getMeeting(vote.meetingId);
         if (!meeting) return;
 
+        const gameStateBeforeVote = this.game.currentState;
         meeting.vote(this, vote.selection);
+
+        // This if statement prevents meetings from being sent if the player's vote caused the state to change
+        if (gameStateBeforeVote === this.game.currentState) {
+          this.sendMeeting(meeting);
+        }
       } catch (e) {
         logger.error(e);
+        // this.handleError(e);
       }
     });
 
@@ -233,14 +288,16 @@ module.exports = class Player {
         if (!meeting) return;
 
         meeting.unvote(this, target);
+        this.sendMeeting(meeting);
       } catch (e) {
         logger.error(e);
+        // this.handleError(e);
       }
     });
 
     socket.on("lastWill", (will) => {
       try {
-        if (!this.game.setup.lastWill) return;
+        if (!this.game.isLastWills()) return;
 
         if (this.game.type == "Mafia" && this.game.getStateName() == "Day")
           return;
@@ -250,6 +307,7 @@ module.exports = class Player {
         this.lastWill = will;
       } catch (e) {
         logger.error(e);
+        // this.handleError(e);
       }
     });
 
@@ -268,6 +326,7 @@ module.exports = class Player {
         meeting.typing(this.id, isTyping);
       } catch (e) {
         logger.error(e);
+        // this.handleError(e);
       }
     });
 
@@ -284,6 +343,7 @@ module.exports = class Player {
         if (this.alive) this.game.sendAlert(`${this.name} has left.`);
       } catch (e) {
         logger.error(e);
+        // this.handleError(e);
       }
     });
   }
@@ -304,6 +364,37 @@ module.exports = class Player {
 
     for (let meeting of allMeetings) {
       if (meeting.id === vegKickMeetingId) {
+        continue;
+      }
+
+      if (meeting.finished) {
+        continue;
+      }
+
+      // player has not voted
+      if (
+        meeting.voting &&
+        meeting.members[this.id].canVote &&
+        meeting.members[this.id].canUpdateVote &&
+        meeting.votes[this.id] === undefined
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  hasVotedInAllCoreMeetings() {
+    let allMeetings = this.getMeetings();
+    let vegKickMeetingId = this.getVegKickMeeting()?.id;
+
+    for (let meeting of allMeetings) {
+      if (meeting.id === vegKickMeetingId) {
+        continue;
+      }
+
+      if (meeting.Important != true) {
         continue;
       }
 
@@ -357,6 +448,105 @@ module.exports = class Player {
           }) | ${role.description.join(" ")}`
         );
         return;
+      case "item":
+        const itemNameToQuery = cmd.args
+          .map((x) => Utils.pascalCase(x))
+          .join(" ");
+        const item = itemData[this.game.type][itemNameToQuery];
+        if (!item) {
+          this.sendAlert(
+            `:system: Could not find the item ${itemNameToQuery}.`
+          );
+          return;
+        }
+        this.sendAlert(
+          `:system: Item Info for ${itemNameToQuery}| ${item.description}`
+        );
+        return;
+      case "modifier":
+        const modifierNameToQuery = cmd.args
+          .map((x) => Utils.pascalCase(x))
+          .join(" ");
+        const modifier = modifierData[this.game.type][modifierNameToQuery];
+        if (!modifier) {
+          this.sendAlert(
+            `:system: Could not find the modifier ${modifierNameToQuery}.`
+          );
+          return;
+        }
+        this.sendAlert(
+          `:system: Modifier Info for ${modifierNameToQuery}| ${modifier.description}`
+        );
+        return;
+      case "help":
+        for (let x = 0; x < Object.entries(commandData).length; x++) {
+          this.sendAlert(
+            `:system: ${Object.entries(commandData)[x][0]}| ${
+              Object.entries(commandData)[x][1].description
+            }`
+          );
+        }
+        return;
+      case "achievement":
+        const achievementNameToQuery = cmd.args
+          .map((x) => Utils.pascalCase(x))
+          .join(" ");
+        const achievement =
+          gameAchievements[this.game.type][achievementNameToQuery];
+        if (!achievement) {
+          this.sendAlert(
+            `:system: Could not find the Achievement ${achievementNameToQuery}.`
+          );
+          return;
+        }
+        let hasComplete;
+        if (this.user.achievements.includes(achievement.ID)) {
+          hasComplete = "You have completed this achievement.";
+        } else {
+          hasComplete = "You have not completed this achievement.";
+        }
+        this.sendAlert(
+          `:system: Achievement Info for ${achievementNameToQuery}- ${achievement.description}| ${hasComplete}`
+        );
+        return;
+      case "daily":
+        let dailyInfo = [];
+        let tempDailyChallenge = this.user.dailyChallenges.map((d) => d[0]);
+        for (let Challenge of Object.entries(DailyChallengeData).filter(
+          (DailyChallenge) => tempDailyChallenge.includes(DailyChallenge[1].ID)
+        )) {
+          let extraData;
+          for (let day of this.user.dailyChallenges) {
+            if (day[0] == Challenge[1].ID) {
+              /*
+          this.sendAlert(
+            `:system: day 0 ${day[0]} day 1 ${day[1]} day 2 ${day[2]}`
+          );
+          */
+              extraData = day[2];
+              dailyInfo.push(
+                `${Challenge[0].replace(
+                  `ExtraData`,
+                  extraData
+                )}: ${Challenge[1].description.replace(`ExtraData`, extraData)}`
+              );
+            }
+          }
+        } //End For Loop
+        /*
+       this.sendAlert(
+            `:system: ${this.user.dailyChallenges.join(", ")}`
+          );
+          */
+
+        if (dailyInfo.length <= 0) {
+          this.sendAlert(`:system: No daily challenges.`);
+          return;
+        }
+        for (let info of dailyInfo) {
+          this.sendAlert(`:system: ${info}`);
+        }
+        return;
       case "ban":
       case "kick":
         // Allow /kick to be used to kick players during veg votekick.
@@ -375,11 +565,6 @@ module.exports = class Player {
         )
           return;
 
-        if (this.game.ranked) {
-          this.sendAlert("You cannot kick players from ranked games.");
-          return;
-        }
-
         if (this.game.competitive) {
           this.sendAlert("You cannot kick players from competitive games.");
           return;
@@ -392,11 +577,111 @@ module.exports = class Player {
           if (player.name.toLowerCase() === cmd.args[0].toLowerCase()) {
             this.game.kickPlayer(player, kickPermanently);
             this.game.sendAlert(
-              `${player.name} was kicked ${andBanned}from the game.`
+              `${player.name} was kicked ${andBanned}from the game.`,
+              undefined,
+              undefined,
+              ["info"]
             );
             return;
           }
         }
+        return;
+      case "changeSetup":
+        const setupToQuery = cmd.args;
+        if (
+          this.game.started ||
+          this.user.id != this.game.hostId ||
+          cmd.args.length == 0
+        ) {
+          return;
+        }
+        if (this.game.canChangeSetup() != true) {
+          this.game.sendAlert(`The setup cannot be changed.`);
+          return;
+        }
+        this.game.changeSetup(setupToQuery);
+        return;
+      case "diceroll":
+        /* Code for cooldown, but it's not needed since only user can see the result :(
+
+        if (this.dicerollCooldown == true) {
+          this.sendAlert(`This command has a 5 seconds cooldown, wait plz`);
+          return;
+        }
+        this.dicerollCooldown = true;
+        setTimeout(() => {
+          this.dicerollCooldown = false;
+        }, 5000);
+        
+        */
+
+        let amountOfRolls = 1;
+        let diceType = 6;
+
+        if (cmd.args.length == 1) {
+          amountOfRolls = cmd.args[0];
+        } else if (cmd.args.length >= 2) {
+          amountOfRolls = cmd.args[0];
+          diceType = cmd.args[1];
+        }
+
+        if (isNaN(amountOfRolls) || amountOfRolls < 0) {
+          amountOfRolls = 1;
+        }
+
+        if (isNaN(diceType) || diceType < 0) {
+          diceType = 6;
+        }
+
+        if (amountOfRolls > 10) {
+          amountOfRolls = 10;
+        }
+
+        if (diceType > 100) {
+          diceType = 100;
+        }
+
+        let rollsOutput =
+          `${this.name} rolled d` +
+          diceType +
+          ` dice ` +
+          amountOfRolls +
+          ` times and got `;
+
+        for (let i = 0; i < amountOfRolls; i++) {
+          let roll = Math.floor(Math.random() * diceType) + 1;
+
+          if (i === amountOfRolls - 1) {
+            rollsOutput += roll + ".";
+          } else {
+            rollsOutput += roll + ", ";
+          }
+        }
+
+        this.sendAlert(rollsOutput);
+
+        return;
+
+      case "Nightorder":
+        if (!this.game.started) {
+          this.sendAlert(`This command can only be used during the game`);
+          return;
+        }
+        if (this.nightorderCooldown == true) {
+          this.sendAlert(`This command has a 5 seconds cooldown, wait plz`);
+          return;
+        }
+        if (this.game.type != "Mafia") {
+          this.sendAlert(`This command is only supported in Mafia games`);
+          return;
+        }
+        this.nightorderCooldown = true;
+        setTimeout(() => {
+          this.nightorderCooldown = false;
+        }, 5000);
+
+        this.sendAlert(`The Night Order is: ${this.game.NightOrder}`);
+
         return;
     }
 
@@ -433,34 +718,195 @@ module.exports = class Player {
       avatar: this.user.avatar,
       textColor: this.user.textColor,
       nameColor: this.user.nameColor,
+      customEmotes: this.user.customEmotes,
       birthday: this.user.birthday,
+      vanityUrl: this.user.vanityUrl,
     };
 
     return info;
   }
 
-  setRole(roleName, roleData, noReveal, noAlert, noEmit) {
+  setRole(roleName, roleData, noReveal, noAlert, noEmit, faction, items) {
     const modifiers = roleName.split(":")[1];
     roleName = roleName.split(":")[0];
+
+    for (let extraRole of this.passiveExtraRoles) {
+      var index = this.ExtraRoles.indexOf(extraRole);
+      if (index != -1) {
+        this.ExtraRoles.splice(index, 1);
+      }
+      extraRole.remove();
+    }
+    this.passiveExtraRoles = [];
+    for (let effect of this.passiveEffects) {
+      effect.remove();
+    }
+    this.passiveEffects = [];
+    for (let effect of this.effects) {
+      if (effect.name == "Blind" && effect.lifespan == Infinity) {
+        effect.remove();
+      } else if (
+        effect.name == "Braggadocious" &&
+        effect.lifespan == Infinity
+      ) {
+        effect.remove();
+      } else if (
+        effect.name == "Condemn Immune" &&
+        effect.lifespan == Infinity
+      ) {
+        effect.remove();
+      } else if (
+        effect.name == "Convert Immune" &&
+        effect.lifespan == Infinity
+      ) {
+        effect.remove();
+      } else if (effect.name == "Immortal" && effect.lifespan == Infinity) {
+        effect.remove();
+      } else if (
+        effect.name == "Leak Whispers" &&
+        effect.lifespan == Infinity
+      ) {
+        effect.remove();
+      } else if (effect.name == "Save Immune" && effect.lifespan == Infinity) {
+        effect.remove();
+      } else if (effect.name == "Scrambled" && effect.lifespan == Infinity) {
+        effect.remove();
+      } else if (effect.name == "Tree" && effect.lifespan == Infinity) {
+        effect.remove();
+      }
+    }
+    if (items == "RemoveStartingItems") {
+      for (let item of this.startingItems) {
+        item.drop();
+      }
+      this.startingItems = [];
+    }
+    if (!faction) {
+      this.faction = this.game.getRoleAlignment(roleName);
+
+      //this.faction = this.game.getRoleAlignment(roleName);
+    } else if (faction != "No Change") {
+      this.faction = faction;
+    }
+
+    if (this.faction == "Independent") {
+      this.faction = this.game.getRoleAlignment(roleName);
+    }
 
     const role = this.game.getRoleClass(roleName);
 
     let oldAppearanceSelf = this.role?.appearance.self;
     this.removeRole();
     this.role = new role(this, roleData);
+    if (items == "NoStartingItems") {
+      this.role.startItems = [];
+    }
     this.role.init(modifiers);
+
+    if (this.game.started == true && this.game.isHiddenConverts() == true) {
+      noReveal = true;
+    }
 
     if (
       !(
         noReveal ||
         (oldAppearanceSelf && oldAppearanceSelf === this.role.appearance.self)
       )
-    )
+    ) {
       this.role.revealToSelf(noAlert);
-
+    }
     if (this.game.started && !noEmit) {
       this.game.events.emit("roleAssigned", this);
     }
+    this.game.events.emit("AbilityToggle", this);
+    if (this.game.achievementsAllowed()) {
+      for (let achievement of Object.entries(
+        gameAchievements[this.game.type]
+      ).filter(
+        (achievementData) =>
+          !this.user.achievements.includes(achievementData[1].ID)
+      )) {
+        let atemp = this.AchievementTracker.filter(
+          (a) => a.name == achievement[0]
+        );
+        if (
+          (achievement[1].roles == null ||
+            achievement[1].roles.includes(this.role.name)) &&
+          atemp.length <= 0
+        ) {
+          let internal = achievement[1].internal;
+
+          let aClass = Utils.importGameClass(
+            this.game.type,
+            "achievements",
+            `${internal}`
+          );
+          let temp = new aClass(achievement[0], this);
+          this.AchievementTracker.push(temp);
+          temp.start();
+        }
+      } //End For Loop
+    }
+    if (this.game.hasIntegrity && this.DailyTracker.length <= 0) {
+      let tempDailyChallenge = this.user.dailyChallenges.map((d) => d[0]);
+      for (let Challenge of Object.entries(DailyChallengeData).filter(
+        (DailyChallenge) => tempDailyChallenge.includes(DailyChallenge[1].ID)
+      )) {
+        let atemp = this.DailyTracker.filter((a) => a.name == Challenge[0]);
+        if (atemp.length <= 0) {
+          let internal = Challenge[1].internal;
+
+          let aClass = Utils.importGameClass("Daily", `${internal}`);
+          let temp = new aClass(Challenge[0], this);
+          this.DailyTracker.push(temp);
+          temp.start();
+        }
+      } //End For Loop
+    }
+  }
+
+  addExtraRole(roleName, roleData, noReveal, noAlert, noEmit, items) {
+    const modifiers = roleName.split(":")[1];
+    roleName = roleName.split(":")[0];
+
+    if (roleData) {
+      roleData = JSON.parse(JSON.stringify(roleData));
+    }
+
+    for (let effect of this.passiveEffects) {
+      effect.remove();
+    }
+    this.passiveEffects = [];
+
+    const role = this.game.getRoleClass(roleName);
+
+    let oldAppearanceSelf = this.role?.appearance.self;
+
+    //this.removeRole();
+    let newRole = new role(this, roleData);
+    if (items == "NoStartingItems") {
+      newRole.startItems = [];
+    }
+    newRole.isExtraRole = true;
+    newRole.init(modifiers);
+    if (items == "NoStartingItems") {
+      for (let item of newRole.startItems) {
+        for (let item2 of this.items) {
+          if (item2.name == item) {
+            item2.drop();
+            break;
+          }
+        }
+      }
+      this.startingItems = [];
+    }
+
+    if (this.game.started && !noEmit) {
+      this.game.events.emit("roleAssigned", this, newRole);
+    }
+    this.game.events.emit("AbilityToggle", this, newRole);
+    this.ExtraRoles.push(newRole);
+    return newRole;
   }
 
   removeRole() {
@@ -497,6 +943,12 @@ module.exports = class Player {
 
     if (this.role) this.role.speak(message);
 
+    if (this.ExtraRoles) {
+      for (let extraRole of this.ExtraRoles) {
+        extraRole.speak(message);
+      }
+    }
+
     if (message.cancel) return;
 
     for (let effect of this.effects) {
@@ -507,7 +959,9 @@ module.exports = class Player {
     if (!message.modified) message = originalMessage;
 
     // message.textColor = message.sender.user.settings.textColor !== undefined ? message.sender.user.settings.textColor : "";
-    message.alive = this.alive;
+    if (message.aliveOverride != true) {
+      message.alive = this.alive;
+    }
 
     return message;
   }
@@ -517,6 +971,12 @@ module.exports = class Player {
     quote = new Quote(quote);
 
     if (this.role) this.role.speakQuote(quote);
+
+    if (this.ExtraRoles) {
+      for (let extraRole of this.ExtraRoles) {
+        extraRole.speakQuote(quote);
+      }
+    }
 
     if (quote.cancel) return;
 
@@ -537,11 +997,28 @@ module.exports = class Player {
     message = new Message(message);
     if (this.role) this.role.hear(message);
 
+    if (this.ExtraRoles) {
+      for (let extraRole of this.ExtraRoles) {
+        extraRole.hear(message);
+      }
+    }
+
     if (message.cancel) return;
+
+    for (let item of this.items) {
+      item.hear(message);
+      if (message.cancel) return;
+    }
 
     for (let effect of this.effects) {
       effect.hear(message);
       if (message.cancel) return;
+      if (message.fiddled) {
+        message.content =
+          message.sender.name + " says something, but you cannot hear them!";
+        message.modified = true;
+        break;
+      }
     }
 
     if (!message.modified) message = originalMessage;
@@ -559,6 +1036,12 @@ module.exports = class Player {
     quote = new Quote(quote);
 
     if (this.role) this.role.hearQuote(quote);
+
+    if (this.ExtraRoles) {
+      for (let extraRole of this.ExtraRoles) {
+        extraRole.hearQuote(quote);
+      }
+    }
 
     if (quote.cancel) return;
 
@@ -580,6 +1063,12 @@ module.exports = class Player {
     vote = { ...vote };
 
     if (this.role) this.role.seeVote(vote);
+
+    if (this.ExtraRoles) {
+      for (let extraRole of this.ExtraRoles) {
+        extraRole.seeVote(vote);
+      }
+    }
 
     if (vote.cancel) return;
 
@@ -611,6 +1100,12 @@ module.exports = class Player {
 
     if (this.role) this.role.seeUnvote(info);
 
+    if (this.ExtraRoles) {
+      for (let extraRole of this.ExtraRoles) {
+        extraRole.seeUnvote(info);
+      }
+    }
+
     if (info.cancel) return;
 
     for (let effect of this.effects) {
@@ -637,6 +1132,12 @@ module.exports = class Player {
   seeTyping(info) {
     if (this.role) this.role.seeTyping(info);
 
+    if (this.ExtraRoles) {
+      for (let extraRole of this.ExtraRoles) {
+        extraRole.seeTyping(info);
+      }
+    }
+
     if (info.cancel) return;
 
     for (let effect of this.effects) {
@@ -648,8 +1149,8 @@ module.exports = class Player {
     this.send("typing", info);
   }
 
-  sendAlert(message) {
-    this.game.sendAlert(message, [this]);
+  sendAlert(message, extraStyle) {
+    this.game.sendAlert(message, [this], extraStyle);
   }
 
   queueAlert(message, priority) {
@@ -659,10 +1160,20 @@ module.exports = class Player {
   meet() {
     if (this.role) this.joinMeetings(this.role.meetings);
 
+    if (this.ExtraRoles) {
+      for (let extraRole of this.ExtraRoles) {
+        this.joinMeetings(extraRole.meetings, extraRole);
+      }
+    }
+
     for (let item of this.items) this.joinMeetings(item.meetings);
   }
 
-  joinMeetings(meetings) {
+  joinMeetings(meetings, extraRole) {
+    if (extraRole == null) {
+      extraRole = this.role;
+    }
+
     var currentStateName = this.game.getStateName();
     var [inExclusive, maxPriority] = this.getMeetingsExclusivity();
 
@@ -677,16 +1188,34 @@ module.exports = class Player {
         disabled =
           disabled || effect.shouldDisableMeeting(meetingName, options);
 
+      //TODO: Check logic to see if whileDead/whileAlive/shouldMeet
+      //      can be condensed.
       if (
         disabled ||
         (options.states.indexOf(currentStateName) == -1 &&
           options.states.indexOf("*") == -1) ||
         options.disabled ||
         (options.shouldMeet != null &&
-          !options.shouldMeet.bind(this.role)(meetingName, options)) ||
+          !options.shouldMeet.bind(extraRole)(meetingName, options)) ||
+        //
+        (options.shouldMeetMod != null &&
+          !options.shouldMeetMod.bind(extraRole)(meetingName, options)) ||
+        (options.ModDisable != null &&
+          !options.ModDisable.bind(extraRole)(meetingName, options)) ||
+        (options.shouldMeetOneShot != null &&
+          !options.shouldMeetOneShot.bind(extraRole)(meetingName, options)) ||
+        (options.shouldMeetDeadMod != null &&
+          !options.shouldMeetDeadMod.bind(extraRole)(meetingName, options)) ||
+        //
         (this.alive && options.whileAlive == false) ||
-        (!this.alive && !options.whileDead) ||
+        (!this.alive &&
+          (options.whileDead == false || options.whileDead == null) &&
+          (options.whileDeadMod == null || options.whileDeadMod == false)) ||
         (options.unique && options.whileDead && options.whileAlive) ||
+        (this.alive && options.whileAliveMod == false) ||
+        //(!this.alive && (options.whileDeadMod != null && options.whileDeadMod == false)) ||
+        (options.unique && options.whileDeadMod && options.whileAliveMod) ||
+        //
         (inExclusive && maxPriority > options.priority)
       ) {
         continue;
@@ -773,6 +1302,16 @@ module.exports = class Player {
 
   act(target, meeting, actors) {
     if (this.role) this.role.act(target, meeting, actors);
+
+    if (this.ExtraRoles) {
+      let tempNames = [this.role];
+      for (let extraRole of this.ExtraRoles) {
+        if (!tempNames.includes(extraRole)) {
+          extraRole.act(target, meeting, actors);
+          tempNames.push(extraRole);
+        }
+      }
+    }
   }
 
   getImmunity(type) {
@@ -781,8 +1320,22 @@ module.exports = class Player {
     if (this.tempImmunity[type] != null) return this.tempImmunity[type];
 
     if (this.role) immunity = this.role.getImmunity(type);
-    else immunity = 0;
 
+    if (immunity == null) {
+      immunity = 0;
+    }
+
+    if (this.ExtraRoles) {
+      for (let extraRole of this.ExtraRoles) {
+        let extraImmunity = extraRole.getImmunity(type);
+        if (immunity < extraImmunity) {
+          immunity = extraImmunity;
+        }
+      }
+    }
+    if (immunity == null) {
+      immunity = 0;
+    }
     for (let effect of this.effects) {
       let effectImmunity = effect.getImmunity(type);
 
@@ -797,6 +1350,12 @@ module.exports = class Player {
 
     maxImmunity = Math.max(maxImmunity, this.role.cancelImmunity[type] || 0);
 
+    if (this.ExtraRoles) {
+      for (let extraRole of this.ExtraRoles) {
+        Math.max(maxImmunity, extraRole.cancelImmunity[type] || 0);
+      }
+    }
+
     for (let effect of this.effects)
       maxImmunity = Math.max(maxImmunity, effect.cancelImmunity[type] || 0);
 
@@ -809,22 +1368,48 @@ module.exports = class Player {
   }
 
   getAppearance(type, noModifier) {
+    let startnomod = noModifier;
     noModifier = noModifier || this.role.hideModifier[type];
 
-    if (this.tempAppearance[type] != null)
+    if (this.tempAppearance[type] != null) {
+      if (this.tempAppearanceMods[type] == null) {
+        noModifier = true;
+      }
+
       return `${this.tempAppearance[type]}${
-        noModifier ? "" : ":" + this.role.modifier
+        noModifier && this.tempAppearanceMods[type] != ""
+          ? ""
+          : ":" + this.tempAppearanceMods[type]
       }`;
+    }
+    if (this.ExtraRoles) {
+      for (let extraRole of this.ExtraRoles) {
+        if (extraRole.appearance[type] != extraRole.name) {
+          noModifier = startnomod || extraRole.hideModifier[type];
+          return `${extraRole.appearance[type]}${
+            noModifier ? "" : ":" + extraRole.appearanceMods[type]
+          }`;
+        }
+      }
+    }
 
     return `${this.role.appearance[type]}${
-      noModifier ? "" : ":" + this.role.modifier
+      noModifier ? "" : ":" + this.role.appearanceMods[type]
     }`;
   }
 
   setTempAppearance(type, appearance) {
     if (appearance == "real") appearance = this.role.name;
+    this.tempAppearanceMods[type] = appearance.split(":")[1];
+    if (
+      !this.tempAppearanceMods[type] ||
+      appearance.split(":")[1] == "" ||
+      appearance.split(":")[1] == null
+    ) {
+      this.tempAppearanceMods[type] = null;
+    }
 
-    this.tempAppearance[type] = appearance;
+    this.tempAppearance[type] = appearance.split(":")[0];
   }
 
   sendMeeting(meeting) {
@@ -870,7 +1455,17 @@ module.exports = class Player {
   }
 
   queueNonmeetActions() {
-    if (this.role) this.role.queueActions();
+    if (this.role) {
+      this.role.queueActions();
+      this.role.queueNightActions();
+    }
+
+    if (this.ExtraRoles) {
+      for (let extraRole of this.ExtraRoles) {
+        extraRole.queueActions();
+        extraRole.queueNightActions();
+      }
+    }
 
     for (let item of this.items) item.queueActions();
 
@@ -975,11 +1570,28 @@ module.exports = class Player {
 
     if (killType != "silent") this.queueDeathMessage(killType, instant);
 
-    if (!this.game.setup.noReveal)
-      this.role.revealToAll(false, this.getRevealType(killType));
+    let roleReveal = true;
+
+    if (this.game.isNoReveal()) {
+      roleReveal = false;
+    }
+
+    if (this.game.isAlignmentOnlyReveal()) {
+      roleReveal = false;
+      this.role.revealAlignmentToAll(false, this.getRevealType(killType), true);
+    }
+
+    if (roleReveal) {
+      this.role.revealToAll(false, this.getRevealType(killType), true);
+    }
 
     this.queueLastWill();
     this.game.events.emit("death", this, killer, killType, instant);
+    this.game.events.emit("AbilityToggle", this);
+
+    if (this.game.isCleansingDeaths() && this.game.type == "Mafia") {
+      this.game.CleansePlayer(this);
+    }
 
     if (!instant) return;
 
@@ -1005,10 +1617,12 @@ module.exports = class Player {
 
   revive(revivalType, reviver, instant) {
     if (this.alive) return;
+    if (this.exorcised) return;
 
     this.game.queueRevival(this);
     this.queueRevivalMessage(revivalType, instant);
     this.game.events.emit("revival", this, reviver, revivalType);
+    this.game.events.emit("AbilityToggle", this);
 
     if (!instant) return;
 
@@ -1035,7 +1649,12 @@ module.exports = class Player {
       !this.game.anonymousGame
         ? customDeathMessage.replace("${name}", this.name)
         : this.deathMessages(type || "basic", this.name);
-    this.game.queueAlert(deathMessage);
+
+    if (this.game.useObituaries) {
+      this.game.addToObituary(this.id, "deathMessage", deathMessage);
+    } else {
+      this.game.queueAlert(deathMessage);
+    }
   }
 
   queueRevivalMessage(type) {
@@ -1044,7 +1663,7 @@ module.exports = class Player {
   }
 
   queueLastWill() {
-    if (!this.game.setup.lastWill) return;
+    if (!this.game.isLastWills()) return;
 
     var will;
 
@@ -1052,7 +1671,11 @@ module.exports = class Player {
       will = `:will: As read from ${this.name}'s last will: ${this.lastWill}`;
     else will = `:will: ${this.name} did not leave a will.`;
 
-    this.game.queueAlert(will);
+    if (this.game.useObituaries) {
+      this.game.addToObituary(this.id, "lastWill", will);
+    } else {
+      this.game.queueAlert(will);
+    }
   }
 
   recordStat(stat, inc) {
@@ -1094,6 +1717,11 @@ module.exports = class Player {
   }
 
   swapIdentity(player) {
+    //Swap Factions
+    let tempFaction = this.faction;
+    this.faction = player.faction;
+    player.faction = tempFaction;
+
     // Swap sockets
     this.socket.clearListeners();
     player.socket.clearListeners();
@@ -1140,6 +1768,23 @@ module.exports = class Player {
     player.role.player = player;
     player.role.revealToSelf(true);
 
+    //Swap Extra Roles
+    var tempExtraRoles = this.ExtraRoles;
+    this.ExtraRoles = player.ExtraRoles;
+    player.ExtraRoles = tempExtraRoles;
+
+    for (let extraRole of this.ExtraRoles) {
+      extraRole.player = this;
+    }
+    for (let extraRole of player.ExtraRoles) {
+      extraRole.player = player;
+    }
+    /*
+    let temp = this.user.customEmotes;
+    this.user.customEmotes = player.user.customEmotes;
+    player.user.customEmotes = temp;
+    */
+
     // Swap items and effects
     var tempItems = this.items;
     this.items = player.items;
@@ -1157,7 +1802,25 @@ module.exports = class Player {
 
     for (let effect of player.effects) effect.player = player;
 
+    for (let alert of player.game.alertQueue.items) {
+      if (!alert.recipients) {
+        continue;
+      }
+      for (let i = 0; i < alert.recipients.length; i++) {
+        let recipient = alert.recipients[i];
+        if (recipient.id === player.id) {
+          alert.recipients[i] = this;
+        } else if (recipient.id === this.id) {
+          alert.recipients[i] = player;
+        }
+      }
+    }
+
     // Reveal disguiser to disguised player
     player.role.revealToPlayer(this, true);
+  }
+
+  getVotePower(meeting) {
+    return 1;
   }
 };

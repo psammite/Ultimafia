@@ -5,11 +5,11 @@ module.exports = class Sheriff extends Role {
     super("Sheriff", player, data);
 
     this.alignment = "Village";
-    this.cards = ["VillageCore", "WinWithVillage"];
+    this.cards = ["VillageCore", "WinWithFaction", "MeetingFaction"];
     this.startItems = [
       {
         type: "Gun",
-        args: [{ reveal: true }],
+        args: [{ reveal: true, modifiers: true }],
       },
     ];
   }

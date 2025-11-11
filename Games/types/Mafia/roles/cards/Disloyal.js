@@ -1,33 +1,51 @@
 const Card = require("../../Card");
-const { PRIORITY_NIGHT_ROLE_BLOCKER } = require("../../const/Priority");
+const Action = require("../../Action");
+const Player = require("../../../../core/Player");
+const {
+  PRIORITY_SELF_BLOCK_EARLY,
+  PRIORITY_SELF_BLOCK_LATER,
+} = require("../../const/Priority");
 
 module.exports = class Disloyal extends Card {
   constructor(role) {
     super(role);
 
-    this.actions = [
-      {
-        priority: PRIORITY_NIGHT_ROLE_BLOCKER,
-        labels: ["block", "hidden", "absolute"],
-        run: function () {
-          if (this.game.getStateName() != "Night") return;
-          if (
-            this.actor.getMeetingByName("Mafia") ||
-            this.actor.getMeetingByName("Cultists")
-          )
-            return;
+    this.listeners = {
+      state: function (stateInfo) {
+        if (!this.hasAbility(["Blocking", "Modifier"])) {
+          return;
+        }
+        if (!stateInfo.name.match(/Night/)) {
+          return;
+        }
 
-          if (!this.actor.alive) return;
+        var action = new Action({
+          actor: this.player,
+          game: this.player.game,
+          priority: PRIORITY_SELF_BLOCK_EARLY,
+          labels: ["block", "hidden", "absolute"],
+          role: this,
+          run: function () {
+            if (!this.isSelfBlock()) {
+              return;
+            }
+            this.blockingMods(this.role);
+          },
+        });
+        var action2 = new Action({
+          actor: this.player,
+          game: this.player.game,
+          priority: PRIORITY_SELF_BLOCK_LATER,
+          labels: ["block", "hidden", "absolute"],
+          role: this,
+          run: function () {
+            this.blockingMods(this.role);
+          },
+        });
 
-          let visits = this.getVisits(this.actor);
-          let sameAlignmentVisits = visits.filter(
-            (v) => v.role.alignment == this.actor.role.alignment
-          );
-          if (sameAlignmentVisits.length > 0) {
-            this.blockActions(this.actor);
-          }
-        },
+        this.game.queueAction(action);
+        this.game.queueAction(action2);
       },
-    ];
+    };
   }
 };

@@ -18,21 +18,28 @@ module.exports = class NaughtyOrNice extends Card {
               return;
             }
 
+            let info = this.game.createInformation(
+              "BinaryAlignmentInfo",
+              this.actor,
+              this.game,
+              this.target
+            );
+            info.processInfo();
+            var alignment = info.getInfoRaw();
+            /*
             let role = this.target.getAppearance("investigate", true);
             let alignment = this.game.getRoleAlignment(role);
+            */
             let naughtyOrNice;
             switch (alignment) {
-              case "Village":
+              case "Innocent":
                 naughtyOrNice = "nice";
                 break;
-              case "Mafia":
-              case "Cult":
+              case "Guilty":
                 naughtyOrNice = "naughty";
                 break;
-              default:
-                naughtyOrNice = "neither naughty nor nice";
-                break;
             }
+
             let alert = `:invest: You learn that ${this.target.name} is ${naughtyOrNice}!`;
             this.game.queueAlert(alert, 0, this.meeting.getPlayers());
           },

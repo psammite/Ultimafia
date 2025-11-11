@@ -1,51 +1,128 @@
-import React, { useContext, useRef, useState } from "react";
+import React, { useContext, useLayoutEffect, useRef, useState } from "react";
 
-import { PopoverContext, UserContext } from "../Contexts";
-import { RoleCount } from "./Roles";
-import { Alignments } from "../Constants";
-import { filterProfanity } from "./Basic";
-import { hyphenDelimit } from "../utils";
+import { UserContext, SiteInfoContext } from "Contexts";
+import { RoleCount } from "components/Roles";
+import { filterProfanity } from "components/Basic";
+import { SearchBar } from "components/Nav";
+import { useIsPhoneDevice } from "hooks/useIsPhoneDevice";
+import { hyphenDelimit } from "utils";
 
-import "../css/setup.css";
-import "../css/roles.css";
+import {
+  Box,
+  Card,
+  Divider,
+  Grid,
+  IconButton,
+  Stack,
+  Typography,
+  useMediaQuery,
+} from "@mui/material";
+import { useTheme } from "@mui/material/styles";
+
+import "css/setup.css";
+import "css/roles.css";
+import { usePopover } from "./Popover";
 
 export default function Setup(props) {
   const user = useContext(UserContext);
-  const popover = useContext(PopoverContext);
+  const siteInfo = useContext(SiteInfoContext);
   const setupRef = useRef();
-  const maxRolesCount = props.maxRolesCount || 50;
-  const classList = props.classList || "";
+  const { InfoPopover, popoverOpen, handleClick } = usePopover({
+    path: `/api/setup/${props.setup.id}`,
+    page: `/learn/setup/${props.setup.id}`,
+    type: "setup",
+    boundingEl: setupRef.current,
+    title: filterProfanity(props.setup.name, user.settings),
+    postprocessData: (data) => (data.roles = JSON.parse(data.roles)),
+  });
+
+  const iconContainerRef = useRef();
+  const [maxIconsPerRow, setMaxIconsPerRow] = useState(null);
   const [setupIndex, setSetupIndex] = useState(0);
-  const disablePopover = props.disablePopover;
-  const small = props.small ?? true;
-  const anonymous = props.setup.anonymous;
-  const anonymousDeck = props.setup.anonymousDeck;
 
-  var roleCounts, multi, useRoleGroups;
-  var overSize = false;
-
-  useRoleGroups = props.setup.useRoleGroups;
+  // Allow overflow to vertically stack if the row width is only 2 or less
+  const wrapIcons = maxIconsPerRow && maxIconsPerRow <= 2;
+  // If wrapIcons is true, limit the icons to three rows
+  const maxIconsTotal =
+    maxIconsPerRow === null
+      ? null
+      : wrapIcons
+      ? maxIconsPerRow * 3
+      : maxIconsPerRow;
 
   if (typeof props.setup.roles == "string")
     props.setup.roles = JSON.parse(props.setup.roles);
 
-  if (props.setup.closed && !useRoleGroups) {
-    roleCounts = [];
+  const backgroundColor = props.backgroundColor || undefined;
+  const classList = props.classList || "";
+  const disablePopover = props.disablePopover;
+  const small = props.small ?? true;
+  const useRoleGroups = props.setup.useRoleGroups;
+  const multi =
+    (!props.setup.closed || useRoleGroups) &&
+    !useRoleGroups &&
+    props.setup.roles.length > 1;
 
-    for (let alignment of Alignments[props.setup.gameType]) {
-      roleCounts.push(
-        <RoleCount
-          closed
-          alignment={alignment}
-          count={props.setup.count[alignment]}
-          gameType={props.setup.gameType}
-          key={alignment}
-        />
-      );
+  // Prevent overflow
+  useLayoutEffect(() => {
+    if (!iconContainerRef.current.lastChild) {
+      return;
+    }
+
+    const rContainer = iconContainerRef.current.getBoundingClientRect();
+    const rLastChild =
+      iconContainerRef.current.lastChild.getBoundingClientRect();
+
+    const containerRightOffset = rContainer.x + rContainer.width;
+    const lastChildRightOffset = rLastChild.x + rLastChild.width;
+
+    if (lastChildRightOffset > containerRightOffset) {
+      // If true, then component is overflowing. Determine the last child that fits and prune the rest.
+      var numFittingIcons = 0;
+      for (let child of iconContainerRef.current.children) {
+        const rChild = child.getBoundingClientRect();
+        const childRightOffset = rChild.x + rChild.width;
+        if (childRightOffset <= containerRightOffset) {
+          numFittingIcons++;
+        }
+      }
+      setMaxIconsPerRow(numFittingIcons);
+    }
+  }, [iconContainerRef]);
+
+  var roleCounts = [];
+  var overSize = false;
+
+  if (props.setup.closed && !useRoleGroups) {
+    const { rolesDividedByAlignment, events } = getRolesByAlignment(
+      siteInfo,
+      props.setup.gameType,
+      props.setup.roles
+    );
+
+    for (let alignment of Object.keys(rolesDividedByAlignment[0])) {
+      const count = props.setup.count[alignment];
+      if (count > 0) {
+        roleCounts.push(
+          <RoleCount
+            closed
+            alignment={alignment}
+            roleGroup={rolesDividedByAlignment[0][alignment]}
+            count={props.setup.count[alignment]}
+            gameType={props.setup.gameType}
+            key={alignment}
+            otherRoles={props.setup.roles}
+          />
+        );
+      }
     }
   } else if (useRoleGroups) {
-    roleCounts = [];
+    let i = 0;
     for (let roleGroup in props.setup.roles) {
+      if (maxIconsTotal !== null && roleCounts.length >= maxIconsTotal) {
+        overSize = true;
+        break;
+      }
       const roleGroupData = props.setup.roles[roleGroup];
       roleCounts.push(
         <RoleCount
@@ -53,14 +130,15 @@ export default function Setup(props) {
           count={props.setup.roleGroupSizes[roleGroup]}
           showPopover
           small={small}
-          role={Object.keys(roleGroupData)[0]}
+          role={INDEXED_ROLE_GROUP_LABELS[i]}
           roleGroup={roleGroupData}
           gameType={props.setup.gameType}
+          otherRoles={props.setup.roles}
         />
       );
+      i++;
     }
   } else {
-    multi = props.setup.roles.length > 1 && !useRoleGroups;
     selectSetup(setupIndex);
   }
 
@@ -70,31 +148,12 @@ export default function Setup(props) {
       <RoleCount
         small={small}
         role={role}
-        showPopover
         count={props.setup.roles[index][role]}
         gameType={props.setup.gameType}
         key={role}
+        otherRoles={props.setup.roles}
       />
     ));
-
-    if (roleCounts.length > maxRolesCount) {
-      roleCounts = roleCounts.slice(0, maxRolesCount);
-      overSize = true;
-    }
-  }
-
-  function onClick({ ref = null }) {
-    if (disablePopover) {
-      return;
-    }
-
-    popover.onClick(
-      `/setup/${props.setup.id}`,
-      "setup",
-      ref ? ref.current : setupRef.current,
-      filterProfanity(props.setup.name, user.settings),
-      (data) => (data.roles = JSON.parse(data.roles))
-    );
   }
 
   function cycleSetups() {
@@ -105,84 +164,482 @@ export default function Setup(props) {
     }
   }
 
+  if (multi) {
+    roleCounts.unshift(
+      <i
+        onClick={cycleSetups}
+        className="fas fa-list-alt"
+        key="multi"
+        style={{
+          fontSize: "1.5rem",
+          cursor: "pointer",
+        }}
+      />
+    );
+  }
+
+  if (maxIconsTotal !== null && roleCounts.length > maxIconsTotal) {
+    overSize = true;
+    roleCounts = roleCounts.slice(0, maxIconsTotal);
+  }
+
+  if (overSize) {
+    roleCounts[maxIconsTotal - 1] = (
+      <i
+        onClick={handleClick}
+        gameType={props.setup.gameType}
+        className="fas fa-ellipsis-h"
+        style={{
+          fontSize: "1.5rem",
+          marginLeft: "4px",
+          cursor: "pointer",
+        }}
+        key="ellipses"
+      />
+    );
+  }
+
   return (
-    <div className={"setup " + classList} ref={setupRef}>
-      <GameIcon revealPopover={onClick} gameType={props.setup.gameType} />
-      {useRoleGroups && (
-        <i
-          title={`Role-Groups`}
-          onClick={onClick}
-          className="multi-setup-icon fas fa-user-friends"
-        />
-      )}
-      {multi && (
-        <i onClick={cycleSetups} className="multi-setup-icon fas fa-list-alt" />
-      )}
-      {roleCounts}
-      {overSize && (
-        <i
-          onClick={onClick}
-          gameType={props.setup.gameType}
-          className="fas fa-ellipsis-h"
-        />
-      )}
-    </div>
+    <>
+      {popoverOpen && <InfoPopover />}
+      <Card
+        variant="outlined"
+        className={"setup " + classList}
+        ref={setupRef}
+        sx={{
+          minWidth: 0,
+          width: "100%",
+          backgroundColor:
+            backgroundColor !== undefined
+              ? "background.paper"
+              : "var(--scheme-color-sec)",
+        }}
+      >
+        <Stack
+          direction="row"
+          sx={{
+            width: "100%",
+            alignItems: "stretch",
+            borderRadius: "var(--mui-shape-borderRadius)",
+            backgroundColor: backgroundColor,
+          }}
+        >
+          <Stack
+            direction="column"
+            aria-owns={popoverOpen ? "mouse-over-popover" : undefined}
+            aria-haspopup="true"
+            onClick={handleClick}
+            sx={{
+              justifyContent: "center",
+              cursor: "pointer",
+              borderTopLeftRadius: "var(--mui-shape-borderRadius)",
+              borderBottomLeftRadius: "var(--mui-shape-borderRadius)",
+              bgcolor: popoverOpen ? "rgba(12, 12, 12, 0.15)" : undefined,
+              "&:hover": { bgcolor: "rgba(12, 12, 12, 0.15)" },
+            }}
+          >
+            <GameIcon
+              className="role-count-wrap"
+              gameType={props.setup.gameType}
+            />
+          </Stack>
+          <Divider orientation="vertical" flexItem />
+          <Stack
+            direction="column"
+            sx={{
+              p: 1,
+              flex: "1 1",
+              alignItems: "stretch",
+              overflowX: "hidden",
+            }}
+          >
+            <Typography variant="body2" className="setup-name">
+              {filterProfanity(props.setup.name, user.settings)}
+            </Typography>
+            <Stack
+              direction="row"
+              ref={iconContainerRef}
+              sx={{
+                minWidth: "0",
+                alignItems: "center",
+                flexWrap: wrapIcons ? "wrap" : "nowrap",
+              }}
+            >
+              {roleCounts}
+            </Stack>
+          </Stack>
+        </Stack>
+      </Card>
+    </>
   );
 }
 
-export function SmallRoleList(props) {
-  var roles;
+export function determineSetupType(setup) {
+  const isMulti = setup.roles.length > 1;
+  if (setup.closed) {
+    if (setup.useRoleGroups) {
+      return "Closed (groups)";
+    } else {
+      return "Closed (whole)";
+    }
+  } else {
+    if (isMulti) {
+      return "Closed (multi-set)";
+    } else {
+      return "Open";
+    }
+  }
+}
 
-  if (Array.isArray(props.roles)) {
-    roles = props.roles.map((role) => (
+export function getAlignmentColor(alignment) {
+  if (alignment === "Village") {
+    return "#66adff";
+  } else if (alignment === "Mafia") {
+    return "#505d66";
+  } else if (alignment === "Cult") {
+    return "#b161d3";
+  } else if (alignment === "Independent") {
+    return "#c7ce48";
+  } else {
+    return "#d3d3d3";
+  }
+}
+
+export function SmallRoleList(props) {
+  const includeSearchBar = props.includeSearchBar || false;
+
+  const [searchVal, setSearchVal] = useState("");
+
+  var roles = props.roles;
+  if (!Array.isArray(props.roles)) {
+    roles = Object.keys(props.roles);
+  }
+
+  const roleList = roles.map((role) => {
+    if (searchVal && role && !role.toLowerCase().includes(searchVal))
+      return null;
+    return (
       <RoleCount
-        small
         role={role}
         makeRolePrediction={props.makeRolePrediction}
-        key={role || "null"}
-        showSecondaryHover
-        gameType={props.gameType}
-      />
-    ));
-  } else
-    roles = Object.keys(props.roles).map((role) => (
-      <RoleCount
-        role={role}
         count={props.roles[role]}
         small={true}
         gameType={props.gameType}
         showSecondaryHover
-        key={role}
+        key={role ? role : "null"}
+        otherRoles={props.otherRoles ? props.otherRoles : props.setup?.roles}
       />
-    ));
+    );
+  });
+
+  function onSearchInput(query) {
+    setSearchVal(query.toLowerCase());
+  }
 
   return (
-    <div className="small-role-list">
-      {props.title} {roles}
-    </div>
+    <Stack direction="column" spacing={1}>
+      {includeSearchBar && (
+        <SearchBar
+          value={searchVal}
+          placeholder="🔎 Role Name"
+          onInput={onSearchInput}
+          key="searchbar"
+        />
+      )}
+      <div className="small-role-list">
+        {props.title} {roleList}
+      </div>
+    </Stack>
+  );
+}
+
+const ALIGNMENT_ORDER = ["Village", "Independent", "Mafia", "Cult"];
+
+const INDEXED_ROLE_GROUP_LABELS = [
+  "A",
+  "B",
+  "C",
+  "D",
+  "E",
+  "F",
+  "G",
+  "H",
+  "I",
+  "J",
+  "K",
+  "L",
+  "M",
+  "N",
+  "O",
+  "P",
+  "Q",
+  "R",
+  "S",
+  "T",
+  "U",
+  "V",
+  "W",
+  "X",
+  "Y",
+  "Z",
+  "AA",
+  "AB",
+  "AC",
+  "AD",
+  "AE",
+  "AF",
+  "AG",
+  "AH",
+  "AI",
+  "AJ",
+  "AK",
+  "AL",
+  "AM",
+  "AN",
+  "AO",
+  "AP",
+  "AQ",
+  "AR",
+  "AS",
+  "AT",
+  "AU",
+  "AV",
+  "AW",
+  "AX",
+];
+
+function getRolesByAlignment(siteInfo, gameType, roles) {
+  let rolesDividedByAlignment = {};
+  const events = [];
+
+  for (let i in roles) {
+    for (let role in roles[i]) {
+      let roleName = role.split(":")[0];
+
+      for (let roleObj of siteInfo.roles[gameType]) {
+        if (roleObj.name === roleName) {
+          const alignment = roleObj.alignment;
+
+          if (alignment === "Event") {
+            events[role] = roles[i][role];
+            continue;
+          }
+
+          if (!rolesDividedByAlignment[i]) rolesDividedByAlignment[i] = {};
+          if (!rolesDividedByAlignment[i][alignment])
+            rolesDividedByAlignment[i][alignment] = {};
+
+          rolesDividedByAlignment[i][alignment][role] = roles[i][role];
+        }
+      }
+    }
+  }
+
+  return {
+    rolesDividedByAlignment: rolesDividedByAlignment,
+    events: events,
+  };
+}
+
+export function FullRoleList({ setup }) {
+  const roles = setup.roles;
+  const gameType = setup.gameType;
+
+  const siteInfo = useContext(SiteInfoContext);
+  const isPhoneDevice = useIsPhoneDevice();
+
+  const { rolesDividedByAlignment, events } = getRolesByAlignment(
+    siteInfo,
+    gameType,
+    roles
+  );
+
+  // holy fricken FREAK this is a 3-dimensional effort
+  const rolesetAlignments = Object.keys(rolesDividedByAlignment).map((i) => {
+    const alignmentKeys = Object.keys(rolesDividedByAlignment[i]);
+    const gridItemSize = isPhoneDevice ? 12 : 12 / alignmentKeys.length;
+
+    const alignmentRoles = ALIGNMENT_ORDER.map((alignment) => {
+      if (rolesDividedByAlignment[i][alignment] === undefined) {
+        return <></>;
+      }
+
+      const alignmentColor = getAlignmentColor(alignment);
+      const roles = Object.keys(rolesDividedByAlignment[i][alignment]).map(
+        (role) => (
+          <RoleCount
+            role={role}
+            count={rolesDividedByAlignment[i][alignment][role]}
+            small={true}
+            gameType={gameType}
+            showSecondaryHover
+            key={role}
+            otherRoles={setup.roles}
+          />
+        )
+      );
+
+      return (
+        <Grid item xs={12} md={gridItemSize}>
+          <Stack
+            direction="row"
+            spacing={0}
+            sx={{
+              p: 1,
+              height: "100%",
+              flexWrap: "wrap",
+              border: `4px solid ${alignmentColor}`,
+              borderRadius: "4px",
+              boxSizing: "border-box",
+              alignContent: "flex-start",
+            }}
+          >
+            {roles}
+          </Stack>
+        </Grid>
+      );
+    });
+
+    return (
+      <Stack
+        direction={isPhoneDevice ? "column" : "row"}
+        sx={{
+          alignItems: "center",
+        }}
+      >
+        {setup.roles.length > 1 && (
+          <RoleCount
+            key={i}
+            count={setup.roleGroupSizes[i]}
+            showPopover={false}
+            role={INDEXED_ROLE_GROUP_LABELS[i]}
+            roleGroup={setup.roles[i]}
+            gameType={gameType}
+          />
+        )}
+        <Grid container columns={12} spacing={1}>
+          {alignmentRoles}
+        </Grid>
+      </Stack>
+    );
+  });
+
+  const eventRoles = Object.keys(events).map((role) => (
+    <RoleCount
+      role={role}
+      count={events[role]}
+      small={true}
+      gameType={gameType}
+      showSecondaryHover
+      key={role}
+      otherRoles={setup.roles}
+    />
+  ));
+
+  return (
+    <Stack
+      direction="column"
+      spacing={1}
+      divider={<Divider orientation="horizontal" flexItem />}
+    >
+      {rolesetAlignments}
+      {eventRoles.length > 0 && (
+        <Stack
+          direction="row"
+          spacing={0}
+          sx={{
+            p: 1,
+            height: "100%",
+            flexWrap: "wrap",
+            border: `4px solid #ff481aff`,
+            borderRadius: "4px",
+            boxSizing: "border-box",
+          }}
+        >
+          {eventRoles}
+        </Stack>
+      )}
+    </Stack>
   );
 }
 
 export function GameIcon(props) {
-  const gameIconRef = useRef();
   const gameType = hyphenDelimit(props.gameType);
 
-  const revealPopover = () => props.revealPopover({ ref: gameIconRef });
+  return <div className={`game-icon ${gameType}`} />;
+}
+
+export function GameStateIcon(props) {
+  const state = props.state;
+  const size = props.size;
+
+  var iconName;
+  if (state === "Day") iconName = "sun";
+  else if (state === "Night") iconName = "moon";
+
   return (
-    <div
-      ref={gameIconRef}
-      onClick={revealPopover}
-      onMouseOver={revealPopover}
-      className={`game-icon ${gameType}`}
+    <i
+      className={`fa-${iconName} fas state-icon`}
+      style={{
+        fontSize: size ? size : undefined,
+      }}
     />
   );
 }
 
-export function GameStateIcon(props) {
-  var iconName;
+export function SetupManipulationButtons(props) {
+  const user = useContext(UserContext);
 
-  if (props.state === "Day") iconName = "sun";
-  else if (props.state === "Night") iconName = "moon";
+  const isOwner = props.setup.creator?.id === user.id;
+  const favIconFormat = props.setup.favorite ? "fas" : "far";
 
-  return <i className={`fa-${iconName} fas state-icon`} />;
+  const missingOwnershipStyle = {
+    opacity: !isOwner ? "20%" : undefined,
+    cursor: !isOwner ? "not-allowed" : undefined,
+  };
+
+  return (
+    <Grid container sx={{ width: "8rem" }}>
+      <Grid item xs={3}>
+        <IconButton aria-label="favorite">
+          <i
+            className={`setup-btn fav-setup fa-star ${favIconFormat}`}
+            onClick={() => props.onFav(props.setup)}
+          />
+        </IconButton>
+      </Grid>
+      <Grid item xs={3}>
+        <IconButton
+          aria-label="edit"
+          disabled={!isOwner}
+          sx={missingOwnershipStyle}
+        >
+          <i
+            className={`setup-btn edit-setup fa-pen-square fas`}
+            onClick={() => props.onEdit(props.setup)}
+          />
+        </IconButton>
+      </Grid>
+      <Grid item xs={3}>
+        <IconButton aria-label="copy">
+          <i
+            className={`setup-btn copy-setup fa-copy fas`}
+            onClick={() => props.onCopy(props.setup)}
+          />
+        </IconButton>
+      </Grid>
+      <Grid item xs={3}>
+        <IconButton
+          aria-label="delete"
+          disabled={!isOwner}
+          sx={missingOwnershipStyle}
+        >
+          <i
+            className={`setup-btn del-setup fa-times-circle fas`}
+            onClick={() => props.onDel(props.setup)}
+          />
+        </IconButton>
+      </Grid>
+    </Grid>
+  );
 }

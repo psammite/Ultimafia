@@ -5,16 +5,13 @@ module.exports = class Politician extends Role {
     super("Politician", player, data);
 
     this.alignment = "Independent";
+    this.winCount = "Village";
     this.cards = [
       "VillageCore",
       "ChangeRandomAlignment",
       "WinWithCurrentAlignment",
       "Oblivious",
+      "VoteWeightTwo",
     ];
-    this.meetingMods = {
-      "*": {
-        voteWeight: 2,
-      },
-    };
   }
 };

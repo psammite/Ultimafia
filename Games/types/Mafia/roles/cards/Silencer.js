@@ -9,13 +9,14 @@ module.exports = class Silencer extends Card {
       Silence: {
         states: ["Night"],
         flags: ["voting"],
-        targets: { include: ["alive"], exclude: ["Mafia"] },
+        targets: { include: ["alive"], exclude: ["self"] },
         action: {
+          role: role,
           labels: ["effect", "silence"],
           priority: PRIORITY_EFFECT_GIVER_DEFAULT,
           run: function () {
             if (this.dominates()) {
-              this.target.giveEffect("Silenced", 1);
+              this.role.giveEffect(this.target, "Silenced", 1);
             }
           },
         },

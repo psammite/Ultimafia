@@ -9,13 +9,21 @@ module.exports = class ConvertToCultists extends Card {
       Cultists: {
         actionName: "Convert",
         states: ["Night"],
-        flags: ["group", "voting", "multiActor"],
-        targets: { include: ["alive"], exclude: ["Cult"] },
+        flags: ["voting"],
+        targets: { include: ["alive"], exclude: ["self"] },
         action: {
           labels: ["convert", "cultist"],
           priority: PRIORITY_CONVERT_DEFAULT,
           run: function () {
-            if (this.dominates()) this.target.setRole("Cultist");
+            if (this.dominates())
+              this.target.setRole(
+                "Cultist",
+                null,
+                false,
+                false,
+                false,
+                this.actor.faction
+              );
           },
         },
       },

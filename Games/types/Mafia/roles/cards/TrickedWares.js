@@ -1,7 +1,7 @@
 const Card = require("../../Card");
 const Random = require("../../../../../lib/Random");
 const Action = require("../../Action");
-const { PRIORITY_ITEM_GIVER_DEFAULT } = require("../../const/Priority");
+const { PRIORITY_ITEM_GIVER_EARLY } = require("../../const/Priority");
 
 module.exports = class TrickedWares extends Card {
   constructor(role) {
@@ -13,7 +13,7 @@ module.exports = class TrickedWares extends Card {
           return;
         }
 
-        if (!this.player.alive) {
+        if (!this.hasAbility(["Item"])) {
           return;
         }
 
@@ -24,16 +24,38 @@ module.exports = class TrickedWares extends Card {
 
         var action = new Action({
           labels: ["giveItem"],
-          priority: PRIORITY_ITEM_GIVER_DEFAULT - 1,
+          priority: PRIORITY_ITEM_GIVER_EARLY - 1,
           actor: this.player,
           target: target,
           game: this.player.game,
           run: function () {
-            var items = ["Gun", "Armor", "Knife", "Whiskey", "Crystal"];
+            var items = [
+              "Gun",
+              "Armor",
+              "Bomb",
+              "Knife",
+              "Whiskey",
+              "Crystal",
+              "Key",
+              "Candle",
+              "Falcon",
+              "Tract",
+              "Syringe",
+              "Envelope",
+              "Rifle",
+              "Stake",
+              "Shaving Cream",
+              "Snowball",
+              "Shield",
+            ];
             var itemToGive = Random.randArrayVal(items);
-            var isItemCursed = Random.randArrayVal([true, false]);
+            var isItemBroken = Random.randArrayVal([true, false]);
+            var isItemMagic = Random.randArrayVal([true, false, false, false]);
 
-            this.target.holdItem(itemToGive, { cursed: isItemCursed });
+            this.target.holdItem(itemToGive, {
+              broken: isItemBroken,
+              magicCult: isItemMagic,
+            });
             this.target.queueGetItemAlert(itemToGive);
           },
         });

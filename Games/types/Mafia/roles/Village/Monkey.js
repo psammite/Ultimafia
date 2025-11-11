@@ -5,7 +5,13 @@ module.exports = class Monkey extends Role {
     super("Monkey", player, data);
 
     this.alignment = "Village";
-    this.cards = ["VillageCore", "WinWithVillage", "CopyActions"];
+    this.cards = [
+      "VillageCore",
+      "WinWithFaction",
+      "MeetingFaction",
+      "BecomeRoleForNight",
+    ];
+    /*
     this.meetingMods = {
       Copy: {
         actionName: "Monkey See",
@@ -14,5 +20,6 @@ module.exports = class Monkey extends Role {
         actionName: "Monkey Do",
       },
     };
+    */
   }
 };

@@ -1,185 +1,72 @@
-import React, { useState, useContext, useEffect } from "react";
+import React, { useState, useContext, useEffect, Suspense, lazy } from "react";
 import {
   Route,
-  Switch,
-  Redirect,
+  Routes,
+  Navigate,
   useLocation,
-  useHistory,
+  useNavigate,
 } from "react-router-dom";
 
-import Join from "./Join";
-
-import HostMafia from "./Host/HostMafia";
-import CreateMafiaSetup from "./CreateSetup/CreateMafiaSetup";
-
-import HostSplitDecision from "./Host/HostSplitDecision";
-import CreateSplitDecisionSetup from "./CreateSetup/CreateSplitDecisionSetup";
-
-import HostResistance from "./Host/HostResistance";
-import CreateResistanceSetup from "./CreateSetup/CreateResistanceSetup";
-
-import HostOneNight from "./Host/HostOneNight";
-import CreateOneNightSetup from "./CreateSetup/CreateOneNightSetup";
-
-import HostGhost from "./Host/HostGhost";
-import CreateGhostSetup from "./CreateSetup/CreateGhostSetup";
-
-import HostJotto from "./Host/HostJotto";
-import CreateJottoSetup from "./CreateSetup/CreateJottoSetup";
-
-import HostAcrotopia from "./Host/HostAcrotopia";
-import CreateAcrotopiaSetup from "./CreateSetup/CreateAcrotopiaSetup";
-
-import HostSecretDictator from "./Host/HostSecretDictator";
-import CreateSecretDictatorSetup from "./CreateSetup/CreateSecretDictatorSetup";
-
-import HostWackyWords from "./Host/HostWackyWords";
-import CreateWackyWordsSetup from "./CreateSetup/CreateWackyWordsSetup";
-
-import { SubNav } from "../../components/Nav";
-import { GameTypes } from "../../Constants";
 import { UserContext } from "../../Contexts";
 
-import "../../css/play.css";
-import DeckSelector from "./Decks/DeckSelector";
-import CreateDecks from "./Decks/CreateDeck";
+import "css/play.css";
+
+import { NewLoading } from "pages/Welcome/NewLoading";
 
 export default function Play(props) {
   const defaultGameType = "Mafia";
 
   const user = useContext(UserContext);
   const location = useLocation();
-  const history = useHistory();
+  const navigate = useNavigate();
   const params = new URLSearchParams(location.search);
   const inLobby = location.pathname === "/play";
   const [gameType, setGameType] = useState(
     params.get("game") || localStorage.getItem("gameType") || defaultGameType
   );
 
-  const links = [
-    {
-      text: "Play",
-      path: "/play",
-      exact: true,
-    },
-    {
-      text: "Host",
-      path: `/play/host`,
-      hide: !user.loggedIn,
-    },
-    {
-      text: "Create Setup",
-      path: `/play/create`,
-      hide: !user.loggedIn,
-    },
-    {
-      text: "Decks",
-      path: `/play/decks`,
-      hide: !user.loggedIn,
-    },
-    {
-      text: "Create Deck",
-      path: `/play/createDeck`,
-      hide: !user.loggedIn,
-    },
-  ];
-
   useEffect(() => {
     localStorage.setItem("gameType", gameType);
 
-    if (!inLobby && !params.get("edit") && params.get("game") !== gameType)
-      history.push(location.pathname + `?game=${gameType}`);
+    if (
+      !inLobby &&
+      !params.get("edit") &&
+      !params.get("copy") &&
+      params.get("game") !== gameType
+    )
+      navigate(location.pathname + `?game=${gameType}`);
   }, [location.pathname, gameType]);
+  // Allow logged-out users to access Play page
 
   function onFilterGameType(gameType) {
     setGameType(gameType);
   }
 
+  const LobbyBrowser = lazy(() => import("./LobbyBrowser/LobbyBrowser"));
+  const CreateSetup = lazy(() => import("./CreateSetup/CreateSetup"));
+  const DeckSelector = lazy(() => import("./Decks/DeckSelector"));
+  const CreateDecks = lazy(() => import("./Decks/CreateDeck"));
+  const HostBrowser = lazy(() => import("./Host/HostBrowser"));
+
   return (
     <>
-      <SubNav
-        links={links}
-        showFilter={!inLobby}
-        filterSel={gameType}
-        filterOptions={GameTypes}
-        onFilter={onFilterGameType}
-        filterIcon={<i className="fas fa-gamepad" />}
-      />
       <div className="inner-content play">
-        <Switch>
-          <Route exact path="/play" render={() => <Join />} />
-          <Route
-            exact
-            path="/play/host"
-            render={() => {
-              switch (gameType) {
-                case "Mafia":
-                  return <HostMafia />;
-                case "Split Decision":
-                  return <HostSplitDecision />;
-                case "Resistance":
-                  return <HostResistance />;
-                case "One Night":
-                  return <HostOneNight />;
-                case "Ghost":
-                  return <HostGhost />;
-                case "Jotto":
-                  return <HostJotto />;
-                case "Acrotopia":
-                  return <HostAcrotopia />;
-                case "Secret Dictator":
-                  return <HostSecretDictator />;
-                case "Wacky Words":
-                  return <HostWackyWords />;
-                default:
-                  setGameType(defaultGameType);
-                  return <></>;
-              }
-            }}
-          />
-
-          <Route exact path="/play/decks" render={() => <DeckSelector />} />
-
-          <Route
-            exact
-            path="/play/create"
-            render={() => {
-              switch (gameType) {
-                case "Mafia":
-                  return <CreateMafiaSetup />;
-                case "Split Decision":
-                  return <CreateSplitDecisionSetup />;
-                case "Resistance":
-                  return <CreateResistanceSetup />;
-                case "One Night":
-                  return <CreateOneNightSetup />;
-                case "Ghost":
-                  return <CreateGhostSetup />;
-                case "Jotto":
-                  return <CreateJottoSetup />;
-                case "Acrotopia":
-                  return <CreateAcrotopiaSetup />;
-                case "Secret Dictator":
-                  return <CreateSecretDictatorSetup />;
-                case "Wacky Words":
-                  return <CreateWackyWordsSetup />;
-                default:
-                  setGameType(defaultGameType);
-                  return <></>;
-              }
-            }}
-          />
-
-          <Route exact path="/play/createDeck" render={() => <CreateDecks />} />
-
-          <Route render={() => <Redirect to="/play" />} />
-        </Switch>
+        <Suspense fallback={<NewLoading />}>
+          <Routes>
+            <Route path="/" element={<LobbyBrowser />} />
+            <Route path="host" element={<HostBrowser />} />
+            <Route path="decks" element={<DeckSelector />} />
+            <Route path="create" element={<CreateSetup />} />
+            <Route path="createDeck" element={<CreateDecks />} />
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
+        </Suspense>
       </div>
     </>
   );
 }
 
-export function TopBarLink(props) {
+export function BotBarLink(props) {
   const active = props.sel.toLowerCase() === props.text.toLowerCase();
 
   return (

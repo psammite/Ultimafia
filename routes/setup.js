@@ -6,12 +6,16 @@ const routeUtils = require("./utils");
 const constants = require("../data/constants");
 const roleData = require("../data/roles");
 const modifierData = require("../data/modifiers");
+const gamesettingsData = require("../data/gamesettings");
 const redis = require("../modules/redis");
 const logger = require("../modules/logging")(".");
 const utils = require("./utils");
 const mongoose = require("mongoose");
 const { min } = require("mocha/lib/reporters");
 const router = express.Router();
+const mongo = require("mongodb");
+const ObjectID = mongo.ObjectID;
+const Diff = require("diff");
 
 function markFavSetups(userId, setups) {
   return new Promise(async (resolve, reject) => {
@@ -35,6 +39,63 @@ function markFavSetups(userId, setups) {
   });
 }
 
+// The setup manifest should be a human readable, easily diff-able file that concisely describes the setup
+function generateMafiaSetupManifest(setup, roles) {
+  try {
+    // Start with the lines for all of the global stuff
+    lines = [
+      `Name: ${setup.name}`,
+      `Starting state: ${setup.startState}`,
+      `Events per night: ${setup.EventsPerNight}`,
+      `No death limit: ${setup.noDeathLimit}`,
+      `Force must act: ${setup.ForceMustAct}`,
+      `Is closed: ${setup.closed}`,
+      `Unique roles: ${setup.unique}`,
+      `Unique roles sans modifier: ${setup.uniqueWithoutModifier}`,
+      `Use role groups: ${setup.useRoleGroups}`,
+      `Game start prompt: ${setup.gameStartPrompt}`,
+      `Game ending event: ${setup.GameEndEvent}`,
+    ];
+
+    lines.push("Game settings:");
+    for (let gameSettingName in Object.keys(gamesettingsData)) {
+      let setupValue = setup.gameSettings[gameSettingName];
+      if (setupValue === undefined) {
+        setupValue = false;
+      }
+      if (gameSettingName.includes("x10")) {
+        continue;
+      }
+      lines.push(`- ${gameSettingName}: ${setupValue}`);
+    }
+
+    if (setup.useRoleGroups) {
+      lines.push(`Role group sizes:`);
+      for (var i = 0; i < setup.roleGroupSizes.length; i++) {
+        lines.push(`- Role group ${i + 1} size: ${setup.roleGroupSizes[i]}`);
+      }
+    }
+
+    lines.push(`Roles:`);
+    for (var i = 0; i < roles.length; i++) {
+      lines.push(`- Role group ${i}:`);
+
+      const roleGroup = roles[i];
+      Object.keys(roleGroup).forEach(function (role) {
+        const tokens = role.split(":");
+        const roleName =
+          tokens.length < 2 || tokens[1] === "" ? tokens[0] : role;
+        lines.push(`  - ${roleName}: ${roleGroup[role]}`);
+      });
+    }
+
+    return lines.join("\n");
+  } catch (e) {
+    logger.error(e);
+    console.log(setup);
+  }
+}
+
 router.get("/id", async function (req, res) {
   res.setHeader("Content-Type", "application/json");
   try {
@@ -42,7 +103,7 @@ router.get("/id", async function (req, res) {
     var setup = await models.Setup.findOne({
       id: String(req.query.query),
     }).select(
-      "id gameType name roles closed useRoleGroups roleGroupSizes count total -_id"
+      "id gameType name roles closed useRoleGroups roleGroupSizes gameSettings count total -_id"
     );
     var setups = setup ? [setup] : [];
 
@@ -51,6 +112,21 @@ router.get("/id", async function (req, res) {
   } catch (e) {
     logger.error(e);
     res.send({ setups: [], pages: 0 });
+  }
+});
+
+router.get("/featuredSetup", async function (req, res) {
+  res.setHeader("Content-Type", "application/json");
+  try {
+    // This is different from the featured search because it only returns one setup for the lobby page
+    var featuredCategory = String(req.query.featuredCategory);
+    var setup = await redis.getFeaturedSetup(featuredCategory);
+
+    res.send(setup);
+  } catch (e) {
+    logger.error(e);
+    res.status("Couldn't find featured setup.");
+    res.send(500);
   }
 });
 
@@ -89,7 +165,10 @@ router.get("/search", async function (req, res) {
     const sort = {};
 
     if (req.query.query) {
-      search.name = { $regex: String(req.query.query), $options: "i" };
+      search["$or"] = [
+        { name: { $regex: String(req.query.query), $options: "i" } },
+        { roles: { $regex: String(req.query.query), $options: "i" } },
+      ];
     }
     if (req.query.option) {
       const options = Array.isArray(req.query.option)
@@ -109,10 +188,14 @@ router.get("/search", async function (req, res) {
               search.ranked = true;
               sort._id = -1;
               break;
+            case "competitive":
+              search.competitive = true;
+              sort._id = -1;
+              break;
             case "favorites":
               const favSetupsIds = (
                 await models.User.findOne({
-                  _id: mongoose.Types.ObjectId(sessionUserId),
+                  _id: new mongoose.Types.ObjectId(sessionUserId),
                 }).select("favSetups")
               )?.favSetups?.map((e) => e._id);
               search._id = { $in: favSetupsIds };
@@ -120,7 +203,7 @@ router.get("/search", async function (req, res) {
               break;
             case "yours":
               sort._id = -1;
-              search.creator = mongoose.Types.ObjectId(sessionUserId);
+              search.creator = new mongoose.Types.ObjectId(sessionUserId);
               break;
             default:
               break;
@@ -136,7 +219,7 @@ router.get("/search", async function (req, res) {
         .skip(start)
         .limit(pageSize)
         .select(
-          "id gameType name roles closed useRoleGroups roleGroupSizes count total featured -_id"
+          "id gameType name roles closed useRoleGroups roleGroupSizes gameSettings count total featured -_id"
         )
         .populate("creator", "id name avatar tag -_id");
       var count = await models.Setup.countDocuments(search);
@@ -155,15 +238,128 @@ router.get("/search", async function (req, res) {
   }
 });
 
+function calculateStats(setupVersion, gameType) {
+  var stats = {};
+
+  // No stats for other gameTypes for now
+  if (gameType !== "Mafia") {
+    return stats;
+  }
+  if (!setupVersion) {
+    return stats;
+  }
+
+  // Infer that a setup is "legacy" if it lacks a manifest
+  const isLegacy = setupVersion.manifest === "";
+
+  // =========================================================================
+
+  const rolePlays = setupVersion.rolePlays || {};
+  const roleWins = setupVersion.roleWins || {};
+
+  // Calculate role winrate
+  var totalRoleWinPercent = 0.0;
+  var roleWinrate = {};
+  var roleWinrateNormalized = {};
+
+  Object.keys(rolePlays).forEach(function (key) {
+    var numWins = key in roleWins ? roleWins[key] : 0;
+    var winPercent = numWins / rolePlays[key];
+
+    roleWinrate[key] = winPercent;
+    totalRoleWinPercent += winPercent;
+  });
+
+  // totalRoleWinPercent will be 1 in most cases, but can be larger if factions joint
+  if (totalRoleWinPercent < 1) {
+    totalRoleWinPercent = 1;
+  }
+
+  Object.keys(roleWinrate).forEach(function (key) {
+    roleWinrateNormalized[key] = roleWinrate[key] / totalRoleWinPercent;
+  });
+
+  // =========================================================================
+
+  var alignmentPlays = setupVersion.alignmentPlays || {};
+  var alignmentWins = setupVersion.alignmentWins || {};
+
+  // Convert role win data from old setups into alignment win data. This may lead to misleading results in multi-setups
+  if (isLegacy) {
+    alignmentPlays = {};
+    alignmentWins = {};
+
+    Object.keys(rolePlays).forEach(function (key) {
+      if (!key in roleData[gameType]) {
+        console.error(`Could not find role data for ${key}`);
+        return;
+      }
+
+      const numWins = key in roleWins ? roleWins[key] : 0;
+      const alignment = roleData[gameType][key].alignment;
+
+      if (!(alignment in alignmentPlays)) alignmentPlays[alignment] = 0;
+      if (!(alignment in alignmentWins)) alignmentWins[alignment] = 0;
+
+      alignmentPlays[alignment] += rolePlays[key];
+      alignmentWins[alignment] += numWins;
+    });
+  }
+
+  // Calculate alignment winrate
+  var totalAlignmentWinPercent = 0.0;
+  var alignmentWinrate = {};
+  var alignmentWinrateNormalized = {};
+
+  Object.keys(alignmentPlays).forEach(function (key) {
+    var numWins = key in alignmentWins ? alignmentWins[key] : 0;
+    var winPercent = numWins / alignmentPlays[key];
+
+    alignmentWinrate[key] = winPercent;
+    totalAlignmentWinPercent += winPercent;
+  });
+
+  // totalAlignmentWinPercent will be 1 in most cases, but can be larger if factions joint
+  if (totalAlignmentWinPercent < 1) {
+    totalAlignmentWinPercent = 1;
+  }
+
+  Object.keys(alignmentWinrate).forEach(function (key) {
+    alignmentWinrateNormalized[key] =
+      alignmentWinrate[key] / totalAlignmentWinPercent;
+  });
+
+  // =========================================================================
+
+  stats.roleWinrate = roleWinrateNormalized;
+  stats.alignmentWinrate = alignmentWinrateNormalized;
+
+  return stats;
+}
+
 router.get("/:id", async function (req, res) {
   res.setHeader("Content-Type", "application/json");
   try {
     var setup = await models.Setup.findOne({ id: req.params.id })
-      .select("-_id -__v -hash")
+      .select("-__v -hash")
       .populate("creator", "id name avatar tag -_id");
 
     if (setup) {
       setup = setup.toJSON();
+
+      var setupVersionNum = setup.version || 0;
+      let setupVersion = await models.SetupVersion.findOne({
+        setup: new ObjectID(setup._id),
+        version: setupVersionNum,
+      }).select(
+        "-_id timestamp changelog manifest played rolePlays roleWins alignmentPlays alignmentWins dayCountWins"
+      );
+      setup.setupVersion = setupVersion || {};
+
+      if (req.get("includeStats") == "true") {
+        setup.stats = calculateStats(setupVersion, setup.gameType);
+      }
+
       res.send(setup);
     } else {
       res.status(500);
@@ -172,7 +368,43 @@ router.get("/:id", async function (req, res) {
   } catch (e) {
     logger.error(e);
     res.status(500);
-    res.send("Unable to find setup.");
+    res.send("Error getting setup.");
+  }
+});
+
+router.get("/:id/version/:setupVersionNum", async function (req, res) {
+  res.setHeader("Content-Type", "application/json");
+  try {
+    var setup = await models.Setup.findOne({ id: req.params.id }).select(
+      "-__v -hash"
+    );
+
+    if (setup) {
+      setup = setup.toJSON();
+
+      let setupVersion = await models.SetupVersion.findOne({
+        setup: new ObjectID(setup._id),
+        version: req.params.setupVersionNum,
+      }).select(
+        "-_id timestamp changelog manifest played rolePlays roleWins alignmentPlays alignmentWins dayCountWins"
+      );
+
+      if (setupVersion) {
+        setupVersion = setupVersion.toJSON();
+        setupVersion.stats = calculateStats(setupVersion, setup.gameType);
+        res.send(setupVersion);
+      } else {
+        res.status(500);
+        res.send("Unable to find setup version.");
+      }
+    } else {
+      res.status(500);
+      res.send("Unable to find setup.");
+    }
+  } catch (e) {
+    logger.error(e);
+    res.status(500);
+    res.send("Error getting setup.");
   }
 });
 
@@ -231,6 +463,36 @@ router.post("/ranked", async function (req, res) {
     logger.error(e);
     res.status(500);
     res.send("Error making setup ranked.");
+  }
+});
+
+router.post("/competitive", async function (req, res) {
+  try {
+    var userId = await routeUtils.verifyLoggedIn(req);
+    var setupId = String(req.body.setupId);
+
+    if (!(await routeUtils.verifyPermission(res, userId, "approveCompetitive")))
+      return;
+
+    var setup = await models.Setup.findOne({ id: setupId });
+
+    if (!setup) {
+      res.status(500);
+      res.send("Setup not found.");
+      return;
+    }
+
+    await models.Setup.updateOne(
+      { id: setupId },
+      { competitive: !setup.competitive }
+    ).exec();
+
+    routeUtils.createModAction(userId, "Toggle Competitive Setup", [setupId]);
+    res.sendStatus(200);
+  } catch (e) {
+    logger.error(e);
+    res.status(500);
+    res.send("Error making setup competitive.");
   }
 });
 
@@ -303,6 +565,7 @@ router.post("/delete", async function (req, res) {
 });
 
 router.post("/create", async function (req, res) {
+  var responseId = null;
   try {
     const userId = await routeUtils.verifyLoggedIn(req);
 
@@ -324,15 +587,13 @@ router.post("/create", async function (req, res) {
         .select("creator ranked")
         .populate("creator", "id");
 
-      if (!setup || setup.creator.id != userId) {
+      if (
+        (!setup || (setup.creator && setup.creator.id != userId)) &&
+        !(await routeUtils.verifyPermission(res, userId, "editAnySetup"))
+      ) {
         res.status(500);
         res.send("You can only edit setups you have created.");
         return;
-      }
-
-      if (setup.ranked) {
-        res.status(500);
-        res.send("You cannot edit ranked setups.");
       }
     }
 
@@ -341,7 +602,8 @@ router.post("/create", async function (req, res) {
     setup.name = String(setup.name || "");
     setup.roles = Object(setup.roles);
     setup.count = Object(setup.count);
-    setup.closed = Boolean(setup.closed);
+    (setup.gameSettings = setup.gameSettings),
+      (setup.closed = Boolean(setup.closed));
     setup.unique = setup.closed ? Boolean(setup.unique) : false;
     setup.uniqueWithoutModifier = setup.unique
       ? Boolean(setup.uniqueWithoutModifier)
@@ -353,11 +615,28 @@ router.post("/create", async function (req, res) {
     setup.startState = String(
       setup.startState || constants.startStates[setup.gameType][0]
     );
-    setup.whispers = Boolean(setup.whispers);
-    setup.leakPercentage = Number(setup.leakPercentage);
-    setup.dawn = Boolean(setup.dawn);
-    setup.mustAct = Boolean(setup.mustAct);
-    setup.mustCondemn = Boolean(setup.mustCondemn);
+    //setup.whispers = Boolean(setup.whispers);
+    //setup.leakPercentage = Number(setup.leakPercentage);
+    //setup.dawn = Boolean(setup.dawn);
+    //setup.mustAct = Boolean(setup.mustAct);
+    //setup.mustCondemn = Boolean(setup.mustCondemn);
+    setup.gameStartPrompt = String(setup.gameStartPrompt || "");
+    //setup.banished = Number(setup.banished || 0);
+    //setup.talkingDead = Boolean(setup.talkingDead);
+    //setup.votingDead = Boolean(setup.votingDead);
+    //setup.majorityVoting = Boolean(setup.majorityVoting);
+    //setup.hiddenConverts = Boolean(setup.hiddenConverts);
+    //setup.RoleShare = Boolean(setup.RoleShare);
+    //setup.AlignmentShare = Boolean(setup.AlignmentShare);
+    //setup.PrivateShare = Boolean(setup.PrivateShare);
+    //setup.PublicShare = Boolean(setup.PublicShare);
+    setup.EventsPerNight = Number(setup.EventsPerNight || 0);
+    setup.noDeathLimit = Number(setup.noDeathLimit || 6);
+    setup.ForceMustAct = Boolean(setup.ForceMustAct);
+    setup.GameEndEvent = String(setup.GameEndEvent || "Meteor");
+    //setup.AllExcessRoles = Boolean(setup.AllExcessRoles);
+    //setup.HostileVsMafia = Boolean(setup.HostileVsMafia);
+    //setup.CultVsMafia = Boolean(setup.CultVsMafia);
 
     if (
       !routeUtils.validProp(setup.gameType) ||
@@ -371,6 +650,12 @@ router.post("/create", async function (req, res) {
     if (!setup.name || !setup.name.length) {
       res.status(500);
       res.send("You must give your setup a name.");
+      return;
+    }
+
+    if (setup.gameStartPrompt.length > 1000) {
+      res.status(500);
+      res.send("Game Start Prompt can't be longer than 1000 characters");
       return;
     }
 
@@ -467,9 +752,15 @@ router.post("/create", async function (req, res) {
       count: setup.count,
     };
 
+    var setupId = null;
     if (req.body.editing) {
       await models.Setup.updateOne({ id: setup.id }, { $set: obj }).exec();
-      res.send(req.body.id);
+      await models.Setup.updateOne(
+        { id: setup.id },
+        { $inc: { version: 1 } }
+      ).exec();
+      responseId = req.body.id;
+      setupId = setup.id;
     } else {
       obj.id = shortid.generate();
       obj.creator = req.session.user._id;
@@ -480,13 +771,56 @@ router.post("/create", async function (req, res) {
         { id: userId },
         { $push: { setups: setup._id } }
       ).exec();
-      res.send(setup.id);
+      responseId = setup.id;
+      setupId = obj.id;
     }
   } catch (e) {
     logger.error(e);
     res.status(500);
     res.send("Unable to make setup.");
+    return;
   }
+
+  try {
+    const setupAfterChanges = await models.Setup.findOne({
+      id: setupId,
+    }).select("_id id version");
+
+    if (setupAfterChanges) {
+      const oldSetupVersion = await models.SetupVersion.findOne({
+        setup: new ObjectID(setupAfterChanges._id),
+        version: setupAfterChanges.version - 1,
+      }).select("_id manifest");
+
+      var oldSetupManifest = "";
+      if (oldSetupVersion) {
+        oldSetupManifest = oldSetupVersion.manifest;
+      }
+
+      const setupManifest = generateMafiaSetupManifest(setup, newRoles);
+
+      setupVersion = new models.SetupVersion({
+        version: setupAfterChanges.version,
+        setup: new ObjectID(setupAfterChanges._id),
+        manifest: setupManifest,
+        changelog: JSON.stringify(
+          Diff.diffLines(oldSetupManifest, setupManifest)
+        ),
+      });
+      await setupVersion.save();
+    } else {
+      logger.warn(
+        `failed to find setup for ID: ${setupId}. A setup version will not be created as a result.`
+      );
+    }
+  } catch (e) {
+    logger.error(e);
+    res.status(500);
+    res.send("Unable to make setup version.");
+    return;
+  }
+
+  res.send(responseId);
 });
 
 function verifyRolesAndCount(setup) {
@@ -522,6 +856,7 @@ function verifyRolesAndCount(setup) {
     var rolesByAlignment = {};
 
     for (let alignment of alignments) {
+      if (alignment == "Event") continue;
       newCount[alignment] = Math.abs(Math.floor(Number(count[alignment]) || 0));
       total += newCount[alignment];
       rolesByAlignment[alignment] = [];
@@ -570,8 +905,19 @@ function verifyRolesAndCount(setup) {
     //Check each roleset
     for (let i in roles) {
       let roleset = roles[i];
+      let eventCount = 0;
+      //roleset = Object.keys(roleset).filter((role) => roleData[gameType][role.split(":")[0]].alignment != "Event");
+      for (let role in roles[i]) {
+        let roleName = role.split(":")[0];
+        let modifiers = role.split(":")[1];
+        if (
+          roleData[gameType][roleName].alignment == "Event" ||
+          (modifiers && modifiers.toLowerCase().includes("banished"))
+        )
+          eventCount++;
+      }
 
-      let roleSetSize = Object.keys(roleset).length;
+      let roleSetSize = Object.keys(roleset).length - eventCount;
       let requiredRoleSetSize = roleGroupSizes[i];
       if (roleSetSize < 1) return ["Add at least one role in each role group"];
 
@@ -601,7 +947,7 @@ function verifyRolesAndCount(setup) {
       if (
         unique &&
         uniqueWithoutModifier &&
-        Object.keys(uniqueRolesCount).length < roleGroupSizes[i]
+        Object.keys(uniqueRolesCount).length - eventCount < roleGroupSizes[i]
       ) {
         return [
           `Roleset ${i} has insufficient roles for the uniqueness without modifier condition.`,
@@ -639,7 +985,17 @@ function verifyRolesAndCount(setup) {
     //Check each roleset
     for (let i in roles) {
       let roleset = roles[i];
-
+      let eventCount = 0;
+      //roleset = Object.keys(roleset).filter((role) => roleData[gameType][role.split(":")[0]].alignment != "Event");
+      for (let role in roles[i]) {
+        let roleName = role.split(":")[0];
+        let modifiers = role.split(":")[1];
+        if (
+          roleData[gameType][roleName].alignment == "Event" ||
+          (modifiers && modifiers.toLowerCase().includes("banished"))
+        )
+          eventCount++;
+      }
       //Check that all roles are valid roles
       for (let role in roleset)
         if (!verifyRole(role, gameType)) {
@@ -653,6 +1009,9 @@ function verifyRolesAndCount(setup) {
 
       for (let role in roleset) {
         let roleName = role.split(":")[0];
+        let modifiers = role.split(":")[1];
+        if (roleData[gameType][roleName].alignment == "Event") continue;
+        if (modifiers && modifiers.toLowerCase().includes("banished")) continue;
         roleset[role] = Math.abs(Math.floor(Number(roleset[role]) || 0));
         tempCount[roleData[gameType][roleName].alignment] += roleset[role];
         tempTotal += roleset[role];
@@ -763,13 +1122,8 @@ const countChecks = {
     if (total < 3 || total > constants.maxPlayers)
       return "Must have between 3 and 50 players.";
 
-    if (
-      count["Mafia"] == 0 &&
-      count["Cult"] == 0 &&
-      count["Independent"] == 0 &&
-      count["Hostile"] == 0
-    )
-      return "Must have at least 1 Mafia, Cult, Independent, or Hostile role.";
+    if (count["Mafia"] == 0 && count["Cult"] == 0 && count["Independent"] == 0)
+      return "Must have at least 1 Mafia, Cult, or Hostile Independent role.";
 
     if (
       count["Mafia"] >= total - count["Mafia"] ||
@@ -795,8 +1149,7 @@ const countChecks = {
       (count["Village"] > roles["Village"].length ||
         count["Mafia"] > roles["Mafia"].length ||
         count["Cult"] > roles["Cult"].length ||
-        count["Independent"] > roles["Independent"].length ||
-        count["Hostile"] > roles["Hostile"].length)
+        count["Independent"] > roles["Independent"].length)
     ) {
       return "Not enough roles chosen for unique selections with given alignment counts.";
     }
@@ -806,27 +1159,9 @@ const countChecks = {
       ((count["Village"] > 0 && roles["Village"].length == 0) ||
         (count["Mafia"] > 0 && roles["Mafia"].length == 0) ||
         (count["Cult"] > 0 && roles["Cult"].length == 0) ||
-        (count["Independent"] > 0 && roles["Independent"].length == 0) ||
-        (count["Hostile"] > 0 && roles["Hostile"].length == 0))
+        (count["Independent"] > 0 && roles["Independent"].length == 0))
     ) {
       return "No roles chosen for some nonzero alignments.";
-    }
-
-    return true;
-  },
-  "Split Decision": (roles, count, total, closed, unique) => {
-    if (total < 4) return "Must have between 4 and 50 players.";
-
-    // If modifiers are added to Split Decision then this needs to be changed
-    if (!closed) {
-      if (!hasOpenRole(roles, "President")) return "Must have a President";
-
-      if (!hasOpenRole(roles, "Bomber")) return "Must have a Bomber";
-    } else {
-      if (roles["Blue"].indexOf("President") == -1)
-        return "Must have a President";
-
-      if (roles["Red"].indexOf("Bomber") == -1) return "Must have a Bomber";
     }
 
     return true;
@@ -837,18 +1172,9 @@ const countChecks = {
 
     return true;
   },
-  "One Night": (roles, count, total, closed, unique) => {
-    if (count["Village"] < 1 || count["Werewolves"] < 1)
-      return "Must have at least one Village member and at leasty one Werewolf member.";
-
-    return true;
-  },
-  Ghost: (roles, count, total, closed, unique) => {
-    if (count["Town"] < 1 || count["Ghost"] < 1)
-      return "Must have at least one Town member and at leasty one Ghost member.";
-
-    if (count["Ghost"] >= count["Town"])
-      return "Ghosts must not make up the majority.";
+  Battlesnakes: (roles, count, total, closed, unique) => {
+    if (total < 2 || total > 10)
+      return "Only 2 to 10 players for now. Will support more players soon.";
     return true;
   },
   Jotto: (roles, count, total, closed, unique) => {
@@ -886,27 +1212,37 @@ const countChecks = {
 
     return true;
   },
+  "Liars Dice": (roles, count, total, closed, unique) => {
+    if (total < 2 || total > 50) return "Must have between 2 and 50 players.";
+    return true;
+  },
+  "Texas Hold Em": (roles, count, total, closed, unique) => {
+    if (total < 2 || total > 20) return "Must have between 2 and 20 players.";
+    return true;
+  },
+  Cheat: (roles, count, total, closed, unique) => {
+    if (total < 2 || total > 10) return "Must have between 2 and 10 players.";
+    return true;
+  },
+  "Dice Wars": (roles, count, total, closed, unique) => {
+    if (total < 2) return "Must have at least 2 players.";
+    if (total > 10) return "Must have at most 10 players.";
+    return true;
+  },
+  "Connect Four": (roles, count, total, closed, unique) => {
+    if (total < 2) return "Must have at least 2 players.";
+
+    const connectFourMaxPlayers = 4;
+    if (total > connectFourMaxPlayers)
+      return `Must have at most ${connectFourMaxPlayers} players.`;
+
+    return true;
+  },
 };
 
 const optionsChecks = {
   Mafia: (setup) => {
-    var lastWill = Boolean(setup.lastWill);
-    var noReveal = Boolean(setup.noReveal);
-    var votesInvisible = Boolean(setup.votesInvisible);
-
-    return { lastWill, noReveal, votesInvisible };
-  },
-  "Split Decision": (setup) => {
-    var swapAmt = Number(setup.swapAmt);
-    var roundAmt = Number(setup.roundAmt) || 3;
-
-    if (swapAmt < 1 || swapAmt > setup.total / 2 - 1)
-      return "Swap amount must be between 1 and one less than the number of players in a room.";
-
-    if (roundAmt < 2 || roundAmt > 10)
-      return "Games must have between 2 and 10 rounds.";
-
-    return { swapAmt, roundAmt };
+    return setup;
   },
   Resistance: (setup) => {
     var firstTeamSize = Number(setup.firstTeamSize);
@@ -931,20 +1267,7 @@ const optionsChecks = {
 
     return { firstTeamSize, lastTeamSize, numMissions, teamFailLimit };
   },
-  "One Night": (setup) => {
-    var votesInvisible = Boolean(setup.votesInvisible);
-    var excessRoles = Number(setup.excessRoles);
-    var newTotal = setup.total - excessRoles;
-
-    if (excessRoles < 2 || excessRoles > 5)
-      return "Excess roles must be between 2 and 5.";
-
-    if (newTotal < 3)
-      return "Total roles minus excess roles must be at least 3.";
-
-    return { votesInvisible, excessRoles, total: newTotal };
-  },
-  Ghost: (setup) => {
+  Battlesnakes: (setup) => {
     return setup;
   },
   Jotto: (setup) => {
@@ -957,6 +1280,21 @@ const optionsChecks = {
     return setup;
   },
   "Wacky Words": (setup) => {
+    return setup;
+  },
+  "Liars Dice": (setup) => {
+    return setup;
+  },
+  "Texas Hold Em": (setup) => {
+    return setup;
+  },
+  Cheat: (setup) => {
+    return setup;
+  },
+  "Dice Wars": (setup) => {
+    return setup;
+  },
+  "Connect Four": (setup) => {
     return setup;
   },
 };

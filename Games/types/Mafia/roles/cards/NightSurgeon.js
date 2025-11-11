@@ -17,11 +17,12 @@ module.exports = class NightSurgeon extends Card {
         action: {
           labels: ["save"],
           priority: PRIORITY_NIGHT_SAVER,
+          role: this.role,
           run: function () {
             this.preventConvert();
             this.heal();
 
-            this.actor.role.surgeonSave = this.target;
+            this.role.surgeonSave = this.target;
           },
         },
       },
@@ -30,14 +31,12 @@ module.exports = class NightSurgeon extends Card {
       {
         labels: ["kill", "hidden"],
         priority: PRIORITY_KILL_DEFAULT,
+        role: this.role,
         run: function () {
-          if (!this.actor.role.surgeonSave) {
+          if (!this.role.surgeonSave) {
             return;
           }
-          const attackers = this.getVisitors(
-            this.actor.role.surgeonSave,
-            "kill"
-          );
+          const attackers = this.getVisitors(this.role.surgeonSave, "kill");
 
           if (attackers.length <= 0) {
             return;
@@ -47,7 +46,7 @@ module.exports = class NightSurgeon extends Card {
           if (this.dominates(toKill)) {
             toKill.kill("basic", this.actor);
           }
-          this.actor.role.surgeonSave = null;
+          this.role.surgeonSave = null;
         },
       },
     ];

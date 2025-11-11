@@ -1,32 +1,21 @@
 .setup {
-  align-self: flex-start;
-
   display: flex;
   flex-flow: row nowrap;
   align-items: center;
-  flex-wrap: nowrap;
 
-  height: 100%;
-  max-width: 100%;
-  border-radius: 3px;
+  overflow: visible;
+}
+
+.setup .setup-name {
+  display: -webkit-box;
+
+  line-clamp: 3;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
 
-  color: var(--scheme-color-text);
-  cursor: pointer;
-
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
-}
-
-.setup .fa-ellipsis-h {
-  align-self: flex-end;
-  margin-left: 5px;
-}
-
-.setup .multi-setup-icon {
-  font-size: 20px;
-  margin-right: 5px;
+  line-height: 1em;
+  margin-bottom: 4px; /* add a teensy bit of margin since modifiers clip up into the name */
 }
 
 .popover .setup,
@@ -35,27 +24,10 @@
 }
 
 .setup .fa-question {
-  font-size: 30px !important;
+  max-height: 1.9375rem;
+  font-size: 1.9375rem !important;
   margin-right: 5px;
   text-shadow: 0 0.04rem 0rem black;
-}
-
-.setup::-webkit-scrollbar {
-  height: 5px;
-}
-
-.setup::-webkit-scrollbar-track {
-  background: #1d1d1d;
-  border-radius: 3px;
-}
-
-.setup::-webkit-scrollbar-thumb {
-  background: #121212;
-  border-radius: 5px;
-}
-
-.setup::-webkit-scrollbar-thumb:hover {
-  background: black;
 }
 
 .i-Village,
@@ -78,17 +50,15 @@
   color: #c7ce48 !important;
 }
 
-.i-Red,
-.i-Hostile {
+.i-Red {
   color: #ce4848 !important;
 }
 
 .small-role-list {
-  display: flex;
-  flex-flow: row wrap;
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
 
   padding: 5px 0px;
-  border-top: 1px solid #d6d6d6;
 }
 
 .small-role-list:first-child {
@@ -102,61 +72,56 @@
 .game-icon {
   flex-shrink: 0;
 
-  width: 30px;
-  height: 30px;
+  width: 1.875rem;
+  height: 1.875rem;
 
-  background-image: url("/images/games.png");
-
-  -webkit-filter: drop-shadow(0px 0px 0.35px gray)
-    drop-shadow(0px 0px 0.35px gray) drop-shadow(0px 0px 0.35px gray)
-    drop-shadow(0px 0px 0.35px gray);
-
-  filter: drop-shadow(0px 0px 0.35px gray) drop-shadow(0px 0px 0.35px gray)
-    drop-shadow(0px 0px 0.35px gray) drop-shadow(0px 0px 0.35px gray);
+  background-size: 100%;
 }
 
 .game-icon.Mafia {
-  background-position: 0 0;
-}
-
-.game-icon.Split-Decision {
-  background-position: -30px 0;
+  background-image: url("/src/images/game_icons/Mafia.png");
 }
 
 .game-icon.Resistance {
-  background-position: -60px 0;
-}
-
-.game-icon.One-Night {
-  background-position: -90px 0;
-}
-
-.game-icon.Ghost {
-  background-position: -120px 0;
+  background-image: url("/src/images/game_icons/Resistance.png");
 }
 
 .game-icon.Jotto {
-  background-position: -150px 0;
+  background-image: url("/src/images/game_icons/Jotto.png");
 }
 
 .game-icon.Secret-Dictator {
-  background-position: -180px 0;
+  background-image: url("/src/images/game_icons/SecretDictator.png");
 }
 
 .game-icon.Acrotopia {
-  background-position: -210px 0;
+  background-image: url("/src/images/game_icons/Acrotopia.png");
 }
 
 .game-icon.Wacky-Words {
-  background-position: -240px 0;
+  background-image: url("/src/images/game_icons/WackyWords.png");
 }
 
-/*
- * Media Queries
- */
+.game-icon.Liars-Dice {
+  background-image: url("/src/images/game_icons/LiarsDice.png");
+}
 
-@media (max-width: 900px) {
-  .setup {
-    max-width: 200px;
-  }
+.game-icon.Texas-Hold-Em {
+  background-image: url("/src/images/game_icons/TexasHoldEm.png");
+}
+
+.game-icon.Cheat {
+  background-image: url("/src/images/game_icons/Cheat.png");
+}
+
+.game-icon.Battlesnakes {
+  background-image: url("/src/images/game_icons/Battlesnakes.png");
+}
+
+.game-icon.Connect-Four {
+  background-image: url("/src/images/game_icons/ConnectFour.png");
+}
+
+.game-icon.Dice-Wars {
+  background-image: url("/src/images/game_icons/DiceWars.png");
 }

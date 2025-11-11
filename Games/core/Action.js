@@ -1,9 +1,21 @@
+const models = require("../../db/models");
+
 module.exports = class Action {
   constructor(options) {
-    this.actors = options.actor ? [options.actor] : options.actors || [];
+    this.actors = options.actors ?? [];
+    if (this.actors.length === 0 && options.actor) {
+      this.actors = [options.actor];
+    }
     this.target = options.target;
     this.game = options.game;
     this.meeting = options.meeting;
+    if (options.role) {
+      this.role = options.role;
+    } else if (this.role != null) {
+    } else {
+      this.role = this.actor?.role;
+    }
+
     this.run = options.run.bind(this);
     this.unboundRun = options.run;
     this.labels = options.labels || [];
@@ -12,15 +24,23 @@ module.exports = class Action {
     this.power = options.power || 1;
     this.effect = options.effect;
     this.item = options.item;
-
-    this.priority += this.actor.role ? this.actor.role.priorityOffset : 0;
+    this.event = options.event;
+    this.achievement = options.achievement;
+    this.priority += this.actor?.role?.priorityOffset ?? 0;
   }
 
   do() {
     this.run();
   }
 
-  dominates(player) {
+  /**
+   * Checks if this action's target is immune to it or not
+   * @param {Player} player the target. If undefined, defaults to this action's target
+   * @param {boolean} emitEvent whether an immune event should occur or not. Set to false
+   *  if the caller would not actually subsequently result in the action being checked for
+   * @returns {boolean} true if the target lacks immunity to this action
+   */
+  dominates(player, emitEvent = true) {
     player = player || this.target;
     // will be true if immune to any label
     let immune = false;
@@ -38,12 +58,34 @@ module.exports = class Action {
       let immuneToLabel = immunity >= this.power;
       if (immuneToLabel) {
         immune = true;
+        if (player.docImmunity && player.docImmunity.length > 0) {
+          for (let i = 0; i < player.docImmunity.length; i++) {
+            this.docSave(player.user.id, player.docImmunity[i].saver);
+          }
+        }
       }
     }
 
-    if (immune) this.game.events.emit("immune", this, player);
+    if (emitEvent && immune) this.game.events.emit("immune", this, player);
 
     return !immune;
+  }
+
+  async docSave(userId, saverId) {
+    var existingDocSave = await models.DocSave.findOne({
+      $or: [
+        { $and: [{ userId: userId }, { saverId: saverId }] },
+        { $and: [{ userId: saverId }, { saverId: userId }] },
+      ],
+    });
+    if (!existingDocSave) {
+      var docSave = new models.DocSave({
+        userId: userId,
+        saverId: saverId,
+      });
+
+      await docSave.save();
+    }
   }
 
   hasLabel(label) {

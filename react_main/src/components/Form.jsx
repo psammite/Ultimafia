@@ -1,10 +1,9 @@
 import React, { useState, useReducer, useRef, useEffect } from "react";
 import { ChromePicker } from "react-color";
-import DatePicker from "react-date-picker";
 import ReactMde from "react-mde";
-import ReactMarkdown from "react-markdown";
 import axios from "axios";
 
+import CustomMarkdown from "components/CustomMarkdown";
 import { useOnOutsideClick } from "./Basic";
 import { useErrorAlert } from "./Alerts";
 
@@ -13,9 +12,22 @@ import "react-mde/lib/styles/css/react-mde-editor.css";
 import "react-mde/lib/styles/css/react-mde-toolbar.css";
 import "react-mde/lib/styles/css/react-mde-suggestions.css";
 
-import "../css/form.css";
-import "../css/markdown.css";
+import "css/form.css";
+import "css/markdown.css";
 import { dateToHTMLString } from "../utils";
+import { colorHasGoodBackgroundContrast } from "../shared/colors";
+import {
+  Autocomplete,
+  TextField,
+  Select,
+  MenuItem,
+  Slider,
+  Button,
+  Box,
+  Grid,
+  IconButton,
+  Typography,
+} from "@mui/material";
 
 export default function Form(props) {
   function onChange(event, field, localOnly) {
@@ -23,6 +35,10 @@ export default function Form(props) {
 
     if (field.min != null && Number(value) < field.min) value = field.min;
     else if (field.max != null && Number(value) > field.max) value = field.max;
+
+    if (field.onChange) {
+      field.onChange(event);
+    }
 
     props.onChange({
       ref: field.ref,
@@ -75,6 +91,11 @@ export default function Form(props) {
     const value =
       typeof field.value == "function" ? field.value(props.deps) : field.value;
 
+    const ExtraInfo = !field?.extraInfo ? null : (
+      <Typography variant="caption" sx={{ p: 0.5 }}>
+        {field?.extraInfo}
+      </Typography>
+    );
     switch (field.type) {
       case "text":
         return (
@@ -119,7 +140,53 @@ export default function Form(props) {
                   {field.saveBtn}
                 </div>
               )}
+            {field.clearBtn && field.value && (
+              <div
+                className="btn btn-theme-sec extra"
+                onClick={(e) => {
+                  if (field.clearBtnOnClick) {
+                    field.clearBtnOnClick(props.deps);
+                  }
+                }}
+              >
+                {field.clearBtn}
+              </div>
+            )}
+            {ExtraInfo}
           </div>
+        );
+      case "emoteUpload":
+        const yourEmotes = Object.keys(value).map((key) => (
+          <div className="existing-custom-emote">
+            <div>{key}</div>
+            <div
+              className="emote"
+              title={key}
+              style={{
+                backgroundImage: `url('/${value[key].path}')`,
+              }}
+            />
+            <IconButton
+              onClick={() =>
+                field.onCustomEmoteDelete(value[key].id, props.deps)
+              }
+            >
+              <i className="fas fa-trash" />
+            </IconButton>
+          </div>
+        ));
+        return (
+          <>
+            <EmoteUpload
+              id="emote-upload"
+              disabled={disabled}
+              deps={props.deps}
+              field={field}
+              fieldWrapperClass={fieldWrapperClass}
+            />
+            <div>Your Custom Emotes:</div>
+            <div className="your-emotes">{yourEmotes}</div>
+          </>
         );
       case "number":
         return (
@@ -185,26 +252,32 @@ export default function Form(props) {
         );
       case "color":
         return (
-          <div className={fieldWrapperClass} key={field.ref}>
-            <div className="label">{field.label}</div>
-            <ColorPicker
-              value={field.value}
-              default={field.default}
-              alpha={field.alpha}
-              disabled={disabled}
-              onChange={(e) => onChange(e, field)}
-            />
-            {!field.noReset && field.value !== field.default && field.value && (
-              <div
-                className="btn btn-theme extra"
-                onClick={() =>
-                  onChange({ target: { value: field.default } }, field)
-                }
-              >
-                Reset
-              </div>
-            )}
-          </div>
+          <>
+            {ExtraInfo}
+            <div className={fieldWrapperClass} key={field.ref}>
+              <div className="label">{field.label}</div>
+              <ColorPicker
+                value={field.value}
+                default={field.default}
+                alpha={field.alpha}
+                disabled={disabled}
+                onChange={(e) => onChange(e, field)}
+                fieldRef={field.ref}
+              />
+              {!field.noReset &&
+                field.value !== field.default &&
+                field.value && (
+                  <div
+                    className="btn btn-theme extra"
+                    onClick={() =>
+                      onChange({ target: { value: field.default } }, field)
+                    }
+                  >
+                    Reset
+                  </div>
+                )}
+            </div>
+          </>
         );
       case "date":
         if (field.value === "undefined") {
@@ -216,19 +289,25 @@ export default function Form(props) {
           selectedValue = undefined;
         }
 
+        // Convert date to YYYY-MM-DD format for HTML5 date input
+        const formatDateForInput = (date) => {
+          if (!date) return "";
+          const d = new Date(date);
+          if (isNaN(d.getTime())) return "";
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, "0");
+          const day = String(d.getDate()).padStart(2, "0");
+          return `${year}-${month}-${day}`;
+        };
+
         return (
           <div className={fieldWrapperClass} key={field.ref}>
             <div className="label">{field.label}</div>
-            <DatePicker
-              format="MMMM dd"
-              calendarAriaLabel="Toggle calendar"
-              clearAriaLabel="Clear value"
-              dayAriaLabel="Day"
-              monthAriaLabel="Month"
-              nativeInputAriaLabel="Date"
-              onChange={(e) => onDChange(e, field, true)}
-              value={field.value || selectedValue || new Date()}
-              maxDetail="month"
+            <input
+              type="date"
+              value={formatDateForInput(field.value || selectedValue)}
+              disabled={disabled}
+              onChange={(e) => onChange(e, field, true)}
             />
             {field.saveBtn && !props.deps.user[field.saveBtnDiffer] && (
               <div
@@ -242,11 +321,23 @@ export default function Form(props) {
                         field.value || field.default,
                         props.deps
                       );
-                    else onDChange(e, field, true);
+                    else onChange(e, field);
                   }
                 }}
               >
                 {field.saveBtn}
+              </div>
+            )}
+            {field.clearBtn && field.value && (
+              <div
+                className="btn btn-theme-sec extra"
+                onClick={(e) => {
+                  if (field.clearBtnOnClick) {
+                    field.clearBtnOnClick(props.deps);
+                  }
+                }}
+              >
+                {field.clearBtn}
               </div>
             )}
           </div>
@@ -274,9 +365,7 @@ export default function Form(props) {
     <div className="form">
       {formFields}
       {props.submitText && (
-        <div className="btn btn-theme-sec" onClick={props.onSubmit}>
-          {props.submitText}
-        </div>
+        <Button onClick={props.onSubmit}>{props.submitText}</Button>
       )}
     </div>
   );
@@ -308,7 +397,13 @@ function ColorPicker(props) {
   }
 
   function onChangeComplete(color, event) {
-    props.onChange({ target: { value: color.hex } });
+    if (props.fieldRef === "nameColor" || props.fieldRef === "textColor") {
+      if (colorHasGoodBackgroundContrast(color.hex)) {
+        props.onChange({ target: { value: color.hex } });
+      }
+    } else {
+      props.onChange({ target: { value: color.hex } });
+    }
   }
 
   useOnOutsideClick(pickerRef, () => setPicking(false));
@@ -359,10 +454,116 @@ export function HiddenUpload(props) {
   );
 }
 
+class EmoteUpload extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {
+      id: this.props.id,
+      emoteText: "",
+      imageURI: null,
+      imageFilename: null,
+      imageMimeType: null,
+    };
+  }
+
+  buildPreview() {
+    if (this.state.imageURI !== null && this.state.emoteText) {
+      return (
+        <>
+          <div className="emote-preview">
+            <div>Preview of :{this.state.emoteText}:</div>
+            <div
+              className="emote"
+              title={this.state.emoteText}
+              style={{
+                backgroundImage: `url('${this.state.imageURI}')`,
+              }}
+            />
+            <div
+              className="btn btn-theme"
+              onClick={(e) => {
+                this.props.field.onCustomEmoteUpload(
+                  this.state.emoteText,
+                  this.state.imageFilename,
+                  this.state.imageMimeType,
+                  this.state.imageURI,
+                  this.props.deps
+                );
+              }}
+            >
+              Submit
+            </div>
+          </div>
+        </>
+      );
+    } else {
+      return null;
+    }
+  }
+
+  readURI(e) {
+    if (e.target.files && e.target.files[0]) {
+      let reader = new FileReader();
+      let imageFilename = e.target.files[0].name;
+      let imageMimeType = e.target.files[0].type;
+      reader.onload = function (e) {
+        this.setState({
+          imageURI: e.target.result,
+          imageFilename: imageFilename,
+          imageMimeType: imageMimeType,
+        });
+      }.bind(this);
+      reader.readAsDataURL(e.target.files[0]);
+    }
+  }
+
+  handleChange(e) {
+    this.readURI(e);
+    if (this.props.onChange !== undefined) this.props.onChange(e); // propagate to parent component
+  }
+
+  updateEmoteText(e) {
+    this.setState({ emoteText: e.target.value });
+  }
+
+  render() {
+    const preview = this.buildPreview();
+
+    return (
+      <>
+        <div
+          className={this.props.fieldWrapperClass}
+          key={this.props.field.ref}
+        >
+          <div className="label">{this.props.field.label}</div>
+          <input
+            type="text"
+            placeholder="your emote name here"
+            maxlength={25}
+            disabled={this.props.disabled}
+            onChange={this.updateEmoteText.bind(this)}
+          />
+        </div>
+        <div className="emote-upload">
+          <label htmlFor={this.state.id} className="btn btn-theme">
+            Upload an image
+          </label>
+          <input
+            id={this.state.id}
+            style={{ visibility: "hidden" }}
+            type="file"
+            onChange={this.handleChange.bind(this)}
+          />
+          {preview}
+        </div>
+      </>
+    );
+  }
+}
+
 export function useForm(initialFormFields) {
-  const [initFields] = useState(initialFormFields);
   const [fields, updateFields] = useReducer((formFields, actions) => {
-    const newFormFields = [...formFields];
+    let newFormFields = [...formFields];
 
     if (!Array.isArray(actions)) actions = [actions];
 
@@ -371,7 +572,17 @@ export function useForm(initialFormFields) {
       let newField = { ...field };
 
       for (let action of actions) {
-        if (field.ref && field.ref === action.ref) {
+        if (action.type) {
+          switch (action.type) {
+            case "setFields": {
+              newFormFields = action.fields;
+              break;
+            }
+            default: {
+              throw Error("Unknown action: " + action.type);
+            }
+          }
+        } else if (field.ref && field.ref === action.ref) {
           if (typeof action.value == "string" && field.type === "boolean")
             action.value = action.value === "true";
 
@@ -389,7 +600,7 @@ export function useForm(initialFormFields) {
   function resetFields() {
     var updates = [];
 
-    for (let field of initFields) {
+    for (let field of initialFormFields) {
       updates.push({
         ref: field.ref,
         prop: "value",
@@ -403,142 +614,21 @@ export function useForm(initialFormFields) {
   return [fields, updateFields, resetFields];
 }
 
-export function SearchSelect(props) {
-  const value = props.value;
-  const setValue = props.setValue;
-
-  const [inputValue, setInputValue] = useState("");
-  const [optionsVisible, setOptionsVisible] = useState(false);
-  const [hoveringOptions, setHoveringOptions] = useState(false);
-  const [matchingOptions, setMatchingOptions] = useState(props.options);
-  const searchSelectRef = useRef();
-  const optionsRef = useRef();
-
-  useEffect(() => {
-    if (!optionsVisible) return;
-
-    const searchSelectRect = searchSelectRef.current.getBoundingClientRect();
-    const optionsRect = optionsRef.current.getBoundingClientRect();
-
-    var optionsTop = searchSelectRect.top + searchSelectRect.height + 1;
-
-    if (optionsTop + optionsRect.height > window.innerHeight)
-      optionsTop = searchSelectRect.top - optionsRect.height - 2;
-
-    optionsRef.current.style.top = optionsTop + "px";
-    optionsRef.current.style.visibility = "visible";
-  });
-
-  useEffect(() => {
-    if (inputValue === "") setMatchingOptions(props.options);
-    else {
-      var options = props.options.filter((option) =>
-        option.toLowerCase().includes(inputValue.toLowerCase())
-      );
-
-      setMatchingOptions(options);
-    }
-  }, [inputValue, props.options]);
-
-  const options = matchingOptions.map((option) => (
-    <div
-      className="option-row"
-      onClick={() => onOptionClick(option)}
-      key={option}
-    >
-      {option}
-    </div>
-  ));
-
-  function onOptionClick(option) {
-    setValue(option);
-    setInputValue("");
-    setOptionsVisible(false);
-    setHoveringOptions(false);
-
-    if (props.onChange) props.onChange(option);
-  }
-
-  function onKeyDown(e) {
-    if (e.key === "Enter") {
-      setValue(matchingOptions[0]);
-      setInputValue("");
-      setOptionsVisible(false);
-      setHoveringOptions(false);
-
-      if (props.onChange) props.onChange(matchingOptions[0]);
-    } else if (!optionsVisible) setOptionsVisible(true);
-  }
-
-  function onMouseEnterOptionsList() {
-    setHoveringOptions(true);
-  }
-
-  function onMouseLeaveOptionsList() {
-    setHoveringOptions(false);
-  }
-
-  function onInputChange(e) {
-    setInputValue(e.target.value);
-
-    if (props.onInputChange) props.onInputChange(e);
-  }
-
-  function onSelectFocus() {
-    setOptionsVisible(true);
-  }
-
-  function onSelectBlur() {
-    if (hoveringOptions) return;
-
-    setOptionsVisible(false);
-    setInputValue("");
-    setMatchingOptions(props.options);
-  }
-
-  return (
-    <div
-      className="search-select"
-      tabIndex="0"
-      onFocus={onSelectFocus}
-      onBlur={onSelectBlur}
-      ref={searchSelectRef}
-    >
-      <input
-        value={inputValue}
-        placeholder={value || props.placeholder}
-        onChange={onInputChange}
-        onKeyDown={onKeyDown}
-      />
-      <div className="icon-wrapper">
-        <i className="fas fa-chevron-down" />
-      </div>
-      {optionsVisible && (
-        <div
-          className="option-list"
-          onMouseEnter={onMouseEnterOptionsList}
-          onMouseLeave={onMouseLeaveOptionsList}
-          ref={optionsRef}
-        >
-          {options.length > 0 && options}
-          {!options.length && <div className="no-options">No Options</div>}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function UserSearchSelect(props) {
   const [options, setOptions] = useState([]);
   const [idMap, setIdMap] = useState({});
   const [query, setQuery] = useState("");
-  const [valueName, setValueName] = useState("");
+  const [inputValue, setInputValue] = useState("");
+
+  const matchingOptions = options.filter((option) =>
+    option.toLowerCase().includes(inputValue.toLowerCase())
+  );
 
   useEffect(() => {
     if (query.length === 0) return;
 
     axios
-      .get(`/user/searchName?query=${query}`)
+      .get(`/api/user/searchName?query=${query}`)
       .then((res) => {
         var newIdMap = {};
 
@@ -550,22 +640,24 @@ export function UserSearchSelect(props) {
       .catch(useErrorAlert);
   }, [query]);
 
-  function setValue(option) {
-    setValueName(option);
-    props.setValue(idMap[option]);
-  }
-
   function onInputChange(e) {
     setQuery(e.target.value);
+    setInputValue(e.target.value);
+  }
+
+  function onChange(option) {
+    if (props.onChange) props.onChange(idMap[option.target.textContent]);
+    setInputValue("");
   }
 
   return (
-    <SearchSelect
-      {...props}
-      options={options}
-      value={valueName}
-      setValue={setValue}
+    <Autocomplete
+      options={matchingOptions}
       onInputChange={onInputChange}
+      onChange={onChange}
+      renderInput={(params) => (
+        <TextField {...params} label={props.placeholder} />
+      )}
     />
   );
 }
@@ -581,7 +673,7 @@ export function TextEditor(props) {
       onTabChange={setTab}
       classes={{ preview: "md-content" }}
       generateMarkdownPreview={(markdown) =>
-        Promise.resolve(<ReactMarkdown source={markdown} />)
+        Promise.resolve(<CustomMarkdown>{markdown}</CustomMarkdown>)
       }
     />
   );

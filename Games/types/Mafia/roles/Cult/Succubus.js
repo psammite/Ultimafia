@@ -7,13 +7,13 @@ module.exports = class Succubus extends Role {
     this.alignment = "Cult";
     this.cards = [
       "VillageCore",
-      "WinWithCult",
-      "MeetingCult",
-      "NightRoleBlocker",
+      "WinWithFaction",
+      "MeetingFaction",
+      "NightDelirium",
     ];
     this.meetingMods = {
-      Block: {
-        targets: { include: ["alive"], exclude: ["Cult"] },
+      Rot: {
+        targets: { include: ["alive"] },
       },
     };
   }

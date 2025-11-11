@@ -8,7 +8,7 @@ module.exports = class Timer {
     this.done = false;
     this.game = options.game;
     this.originalClients = options.clients;
-    this.syncPeriod = options.syncPeriod || 10000;
+    this.syncPeriod = options.syncPeriod || 200;
   }
 
   start() {
@@ -16,11 +16,7 @@ module.exports = class Timer {
     clearInterval(this.syncInterval);
 
     this.timeout = setTimeout(() => {
-      try {
-        this.end();
-      } catch (e) {
-        logger.error(e);
-      }
+      this.end();
     }, this.delay);
 
     this.syncInterval = setInterval(() => {
@@ -65,6 +61,11 @@ module.exports = class Timer {
 
   extend(length) {
     this.delay = this.timeLeft() + length;
+    this.restart();
+  }
+
+  set(length) {
+    this.delay = length;
     this.restart();
   }
 

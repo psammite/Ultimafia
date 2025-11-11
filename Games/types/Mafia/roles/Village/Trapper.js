@@ -5,7 +5,12 @@ module.exports = class Trapper extends Role {
     super("Trapper", player, data);
 
     this.alignment = "Village";
-    this.cards = ["VillageCore", "WinWithVillage", "NightTrapper"];
+    this.cards = [
+      "VillageCore",
+      "WinWithFaction",
+      "MeetingFaction",
+      "NightTrapper",
+    ];
 
     this.listeners = {
       start: [
@@ -17,7 +22,6 @@ module.exports = class Trapper extends Role {
               case "Cult":
                 return 1;
               case "Independent":
-              case "Hostile":
                 return 2;
               case "Village":
               default:

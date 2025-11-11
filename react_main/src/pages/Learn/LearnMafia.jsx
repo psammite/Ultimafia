@@ -1,140 +1,127 @@
 import React, { useContext, useEffect } from "react";
-
-import { RoleSearch } from "../../components/Roles";
-import { PanelGrid } from "../../components/Basic";
-
-import "../../css/learn.css";
-import { SiteInfoContext } from "../../Contexts";
-import { hyphenDelimit } from "../../utils";
-
 import {
-  Paper,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Typography,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  Paper,
 } from "@mui/material";
-import { slangList } from "../../constants/slangList";
+import { useTheme } from "@mui/material/styles";
+
+import { RoleSearch, ModifierSearch } from "../../components/Roles";
+import { SiteInfoContext } from "../../Contexts";
+import { hyphenDelimit } from "../../utils";
 
 export default function LearnMafia(props) {
   const gameType = "Mafia";
-
+  const theme = useTheme();
   const siteInfo = useContext(SiteInfoContext);
 
-  const slangTableRows = Object.keys(slangList).map((key) => {
-    let { definition, emoji } = slangList[key];
-    if (Array.isArray(emoji)) {
-      emoji = emoji.join(", ");
-    }
-
-    return {
-      term: key,
-      definition,
-      emoji,
-    };
-  });
-
-  // TODO [MUI]: modify the theme rather than using 'sx', for consistency (across all components)
-  const slangTable = (
-    <TableContainer component={Paper}>
-      <Table sx={{ minWidth: 650 }} size="small" aria-label="a dense table">
-        <TableHead>
-          <TableRow>
-            <TableCell align="center" sx={{ fontWeight: "bold" }}>
-              Term
-            </TableCell>
-            <TableCell align="center" sx={{ fontWeight: "bold" }}>
-              Explanation
-            </TableCell>
-            <TableCell align="center" sx={{ fontWeight: "bold" }}>
-              'Additions'
-            </TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {slangTableRows.map((row) => (
-            <TableRow
-              key={row.name}
-              sx={{ "&:last-child td, &:last-child th": { border: 0 } }}
-            >
-              <TableCell component="th" scope="row" align="center">
-                {row.term}
-              </TableCell>
-              <TableCell align="center">{row.definition}</TableCell>
-              <TableCell align="center">{row.emoji}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
-  );
-
-  var items = [
+  const items = [
     {
       name: "Gun",
       text: "Can be shot once during the day to kill a specific player.",
+      icon: <div className="icon item item-Mafia-Gun" />,
+    },
+    {
+      name: "Rifle",
+      text: "Can be shot once during the day to kill a specific player. If target shares alignment with shooter, shooter will die too. If target is of an opposing alignment, shooter gains another rifle. Otherwise, nothing happens.",
+      icon: <div className="icon item item-Mafia-Rifle" />,
     },
     {
       name: "Armor",
       text: "Saves a player from being killed one time, not including being condemned.",
+      icon: <div className="icon item item-Mafia-Armor" />,
+    },
+    {
+      name: "Shield",
+      text: "Can be used at night to redirect kills targeting the holder on to a random player of the same alignment, if possible.",
+      icon: <div className="icon item item-Mafia-Armor" />,
     },
     {
       name: "Bomb",
       text: "When a player is killed while holding a bomb, the player who killed them will also die.",
+      icon: <div className="icon item item-Mafia-Bomb" />,
     },
     {
       name: "Timebomb",
       text: "Players pass the timebomb around during the day. The timebomb will randomly explode between 10 and 30 seconds and kill the person holding the bomb.",
+      icon: <div className="icon item item-Mafia-Timebomb" />,
     },
     {
-      name: "Crystal",
+      name: "Crystal Ball",
       text: "The holder of the crystal can choose a person each night and if they die, their target's role will be revealed.",
+      icon: <div className="icon item item-Mafia-Crystal" />,
     },
     {
       name: "Knife",
       text: "Can be used once during the day to stab a specific player, who will bleed out and die the following night.",
+      icon: <div className="icon item item-Mafia-Knife" />,
     },
     {
       name: "Whiskey",
       text: "Can be used once during the day on a specific player, who will be roleblocked the following night.",
+      icon: <div className="icon item item-Mafia-Whiskey" />,
     },
     {
       name: "Key",
       text: "Can be used once during the night to make the player untargetable. All actions on the player are cancelled",
+      icon: <div className="icon item item-Mafia-Key" />,
     },
     {
       name: "Bread",
       text: "Given out by the baker. Counts as 1 ration for each phase in a famine.",
+      icon: <div className="icon item item-Mafia-Bread" />,
     },
     {
       name: "Yuzu Orange",
       text: "Given out by the Capybara to invite players to relax at the hot springs. Counts as 1 ration for each phase in a famine.",
+      icon: <div className="icon item item-Mafia-Yuzu-Orange" />,
     },
     {
       name: "Suit",
       text: "Given by the tailor, a suit determines what role a user will appear as once dead.",
-    },
-    {
-      name: "Gasoline",
-      text: "Used by the arsonist to douse their victims in preparation for their ignition.",
+      icon: <div className="icon item item-Mafia-Suit" />,
     },
     {
       name: "Match",
       text: "Used by the arsonist to ignite everyone doused with gasoline.",
+      icon: <div className="icon item item-Mafia-Match" />,
     },
     {
       name: "Candle",
       text: "Allows the holder to see all their visitors at night.",
+      icon: <div className="icon item item-Mafia-Candle" />,
     },
     {
       name: "Falcon",
       text: "Can be used to track another player during the night.",
+      icon: <div className="icon item item-Mafia-Falcon" />,
+    },
+    {
+      name: "Tract",
+      text: "Saves a player from being converted one time.",
+      icon: <div className="icon item item-Mafia-Tract" />,
+    },
+    {
+      name: "Syringe",
+      text: "Can be shot once during the day to resurrect a specific player.",
+      icon: <div className="icon item item-Mafia-Syringe" />,
+    },
+    {
+      name: "Envelope",
+      text: "Can be used at night to send an anonymous letter to another player.",
+      icon: <div className="icon item item-Mafia-Envelope" />,
     },
   ];
 
-  var mechanics = [
+  const mechanics = [
     {
       name: "Whispers",
       text: "Allow players to privately contact another player in the town meeting. If the whisper leaks then everyone will see it.",
@@ -156,6 +143,10 @@ export default function LearnMafia(props) {
       text: "The roles of dead players are not revealed.",
     },
     {
+      name: "Alignment-Only Reveal",
+      text: "Only the alignments of dead players are revealed.",
+    },
+    {
       name: "Closed Roles",
       text: "Roles for each alignment are randomly chosen from the pool of roles in the setup.",
     },
@@ -164,16 +155,12 @@ export default function LearnMafia(props) {
       text: "No actions can be taken the first night.",
     },
     {
-      name: "Full Moon",
-      text: "When a Werewolf is present in the game, full moons will occur on odd nights.",
-    },
-    {
-      name: "Eclipse",
-      text: "Occurs during the day due to certain roles, making all votes and speech anonymous.",
-    },
-    {
       name: "Famine",
       text: "While active, each player consumes one item of food each day/night. Anyone who doesn't have food to consume dies.",
+    },
+    {
+      name: "Delirium",
+      text: "An effect that makes players get false information and have non-information abilities disabled.",
     },
   ];
 
@@ -193,60 +180,89 @@ export default function LearnMafia(props) {
     document.title = "Learn Mafia | UltiMafia";
   }, []);
 
+  const renderTable = (data) => (
+    <TableContainer component={Paper}>
+      <Table>
+        <TableHead>
+          <TableRow>
+            <TableCell>Name</TableCell>
+            <TableCell>Description</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {data.map((entry, index) => (
+            <TableRow key={index}>
+              <TableCell>
+                {entry.icon} {entry.name}
+              </TableCell>
+              <TableCell>{entry.text}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
+
   return (
-    <div className="span-panel main">
-      <div className="learn">
-        <div className="heading">Synopsis</div>
-        <div className="paragraphs">
-          <div className="paragraph">
-            Mafia is a game of social deception where an informed minority (the
-            Mafia) compete against the uniformed majority (the Village). The
-            Mafia choose one player to kill each night, and they win the game if
-            they successfully outnumber the non-mafia players at any point.
-            Everyone votes to condemn one person during the day, with the
-            Village aiming to eliminate all mafia members.
-          </div>
-          <div className="paragraph">
-            In addition to the Village and the Mafia, there are two other
-            alignments: Independent and Cult. Independents are not aligned with
-            a side and usually have their own unique win condition. Hostiles are
-            Independent roles that delay a Village victory until their deaths.
-            The Cult meets together and win if they reach the majority just like
-            the Mafia, but they do not vote to kill someone each night.
-          </div>
-          <div className="paragraph">
-            At the beginning of a game, each player is given a role. This role
-            may grant the player special abilities, usually in the form of
-            actions they can take to aid their side. A list of all roles and
-            their abilities can be found below.
-          </div>
-        </div>
-        <div className="heading">Roles</div>
-        <RoleSearch gameType={gameType} />
-        <div className="heading">Items</div>
-        <PanelGrid panels={items} />
-        <div className="heading">Mechanics</div>
-        <PanelGrid panels={mechanics} />
-        <div className="heading">Modifiers</div>
-        <PanelGrid panels={modifiers} />
-        <div className="heading">Terminology (mafia slang)</div>
-        <div className="paragraph">
-          Below lies the full list of terms automatically detected by the game.
-          <br />
-          <br />
-          If you would like to improve one of the explanations (or even the
-          emoji pool) or add a new term,{" "}
-          <strong>
-            please consider contributing through our Feedback form / Discord /
-            Github Repo (when it's visible)
-          </strong>{" "}
-          / etc.
-          <br />
-          <br />
-          It's up to us to keep it fresh and relevant.
-        </div>
-        <div className="paragraph">{slangTable}</div>
-      </div>
+    <div className="learn">
+      <Typography variant="h2" gutterBottom>
+        Learn Mafia
+      </Typography>
+      <Typography variant="body1" paragraph>
+        Mafia is a chat-based social deception game, based on the party game
+        Mafia by Dimitry Davidoff. In this version, the Town is under attack by
+        the nefarious Mafia, and it is their job to find and condemn the Mafia
+        members to death before the Mafia can kill enough Town members to take
+        control. If the Town manages to find and eliminate all members of the
+        Mafia, they win. However, if the Mafia kills enough Town members to make
+        up at least 50% of the remaining players, Mafia wins.
+      </Typography>
+      <Typography variant="body1" paragraph>
+        The game operates on day/night cycles. At night, the Mafia meet in
+        secret to discuss their plans & to pick a target to kill. During the
+        day, the Town reconvenes - with the Mafia hiding amongst them - and
+        discusses the events of the night. Members of the Town must use their
+        wits to examine each player's behavior and determine if there is
+        anything amiss, while members of the Mafia must try their hardest to
+        blend in and throw the Town off of their trail. When the discussion
+        period is over, all players in the game will vote to decide who they
+        believe is a member of the Mafia, ending the day.
+      </Typography>
+      <Typography variant="body1" paragraph>
+        Each player is given a random role at the start of the game; players can
+        hover over the role icon on the left-hand side of the screen in order to
+        examine its alignment. Some roles also come with special abilities that
+        can be used to aid their team, or that provide them unique conditions
+        for winning. Be sure to read the description carefully!
+      </Typography>
+      <Accordion>
+        <AccordionSummary>
+          <Typography variant="h3">Roles</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <RoleSearch gameType={gameType} />
+        </AccordionDetails>
+      </Accordion>
+      <Accordion>
+        <AccordionSummary>
+          <Typography variant="h3">Modifiers</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <ModifierSearch gameType={gameType} />
+        </AccordionDetails>
+      </Accordion>
+      <Accordion>
+        <AccordionSummary>
+          <Typography variant="h3">Items</Typography>
+        </AccordionSummary>
+        <AccordionDetails>{renderTable(items)}</AccordionDetails>
+      </Accordion>
+      <Accordion>
+        <AccordionSummary>
+          <Typography variant="h3">Mechanics</Typography>
+        </AccordionSummary>
+        <AccordionDetails>{renderTable(mechanics)}</AccordionDetails>
+      </Accordion>
     </div>
   );
 }

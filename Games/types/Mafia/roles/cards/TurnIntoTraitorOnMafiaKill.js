@@ -5,7 +5,7 @@ module.exports = class TurnIntoTraitorOnMafiaKill extends Card {
   constructor(role) {
     super(role);
 
-    this.immunity["mafia"] = Infinity;
+    //this.immunity["mafia"] = Infinity;
     this.listeners = {
       immune: function (action) {
         if (action.target !== this.player) {
@@ -15,6 +15,8 @@ module.exports = class TurnIntoTraitorOnMafiaKill extends Card {
         if (!action.hasLabel("mafia")) {
           return;
         }
+
+        this.player.tempImmunity["mafia"] = Infinity;
 
         let convertAction = new Action({
           labels: ["convert"],
@@ -28,6 +30,20 @@ module.exports = class TurnIntoTraitorOnMafiaKill extends Card {
           },
         });
         convertAction.do();
+      },
+      AbilityToggle: function (player) {
+        if (player != this.player) {
+          return;
+        }
+        if (
+          (this.player.role.name == "Turncoat" &&
+            this.hasAbility(["OnlyWhenAlive"])) ||
+          this.hasAbility(["Modifier", "OnlyWhenAlive"])
+        ) {
+          this.immunity["mafia"] = Infinity;
+        } else {
+          this.immunity["mafia"] = 0;
+        }
       },
     };
   }

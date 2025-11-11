@@ -10,30 +10,28 @@ module.exports = class RoamingAlignment extends Card {
 
     this.meetings = {
       "Align With": {
-        actionName: "Follow the ways of",
         states: ["Night"],
-        flags: ["voting"],
+        flags: ["voting", "mustAct"],
+        targets: { include: ["alive"], exclude: ["self", isPrevTarget] },
         action: {
           priority: PRIORITY_MODIFY_INVESTIGATIVE_RESULT_DEFAULT,
+          role: this.role,
           run: function () {
-            let alignment = this.target.role.alignment;
-            if (alignment == "Independent" || alignment == "Hostile") {
-              this.actor.queueAlert(
-                `You follow ${this.target.name} but could not find somewhere that you could call your own.`
-              );
-              delete this.actor.role.data.alignment;
-              return;
+            this.actor.role.data.prevTarget = this.target;
+            let alignment = this.target.faction;
+            if (alignment == "Independent") {
+              alignment = this.target.role.name;
             }
 
-            this.actor.role.data.alignment = alignment;
+            this.actor.faction = alignment;
             this.actor.queueAlert(
-              `You follow ${this.target.name} and learn the ways of the ${alignment}.`
+              `You follow ${this.target.name} and will win if they win.`
             );
           },
         },
       },
     };
-
+    /*
     this.winCheck = {
       priority: PRIORITY_WIN_CHECK_DEFAULT,
       againOnFinished: true,
@@ -59,5 +57,10 @@ module.exports = class RoamingAlignment extends Card {
         }
       },
     };
+    */
   }
 };
+
+function isPrevTarget(player) {
+  return this.role && player == this.role.data.prevTarget;
+}

@@ -5,6 +5,12 @@ module.exports = class Hunter extends Role {
     super("Hunter", player, data);
 
     this.alignment = "Village";
-    this.cards = ["VillageCore", "WinWithVillage", "CondemnRevenge"];
+    this.cards = [
+      "VillageCore",
+      "WinWithFaction",
+      "MeetingFaction",
+      "CondemnRevenge",
+      "AddDusk",
+    ];
   }
 };

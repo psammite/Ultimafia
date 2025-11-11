@@ -6,13 +6,15 @@ module.exports = class Knife extends Item {
     super("Knife");
 
     this.reveal = options?.reveal;
-    this.cursed = options?.cursed;
+    this.broken = options?.broken;
+    this.magicCult = options?.magicCult;
 
     this.meetings = {
       "Stab Knife": {
         actionName: "Stab",
         states: ["Day"],
         flags: ["voting", "instant", "noVeg"],
+        item: this,
         action: {
           labels: ["stab"],
           item: this,
@@ -22,16 +24,17 @@ module.exports = class Knife extends Item {
               reveal = Random.randArrayVal([true, false]);
             }
 
-            var cursed = this.item.cursed;
-            if (cursed) {
+            var broken = this.item.broken;
+            var magicCult = this.item.magicCult;
+            if (broken) {
               this.target = this.actor;
             }
 
-            if (reveal && cursed)
+            if (reveal && broken)
               this.game.queueAlert(
                 `:knife: ${this.actor.name} nicks themself with a knife!`
               );
-            else if (reveal && !cursed)
+            else if (reveal && !broken)
               this.game.queueAlert(
                 `:knife: ${this.actor.name} stabs ${this.target.name} with a knife!`
               );
@@ -41,7 +44,11 @@ module.exports = class Knife extends Item {
               );
 
             if (this.dominates()) {
-              this.target.giveEffect("Bleeding", this.actor);
+              if (magicCult) {
+                this.target.giveEffect("BleedingCult", this.actor);
+              } else {
+                this.target.giveEffect("Bleeding", this.actor);
+              }
             }
             this.item.drop();
           },

@@ -4,12 +4,15 @@ module.exports = class AppearAsVillagerOnDeath extends Card {
   constructor(role) {
     super(role);
 
-    this.appearance = {
-      self: "real",
-      reveal: "real",
+    let tempApp = {
       condemn: "Villager",
       death: "Villager",
-      investigate: "real",
+    };
+    this.editAppearance(tempApp);
+
+    this.hideModifier = {
+      condemn: true,
+      death: true,
     };
   }
 };

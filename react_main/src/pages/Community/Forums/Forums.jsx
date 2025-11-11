@@ -1,40 +1,68 @@
-import React, { useReducer, useContext } from "react";
-import { NavLink, Switch, Route, Redirect } from "react-router-dom";
+import React, {
+  useReducer,
+  useContext,
+  useState,
+  useRef,
+  useLayoutEffect,
+} from "react";
+import { NavLink, Routes, Route, Navigate } from "react-router-dom";
 import axios from "axios";
 import update from "immutability-helper";
 
 import Categories from "./Categories";
 import Board from "./Board";
 import Thread from "./Thread";
+import SearchResults from "./SearchResults";
+import ForumSearch from "./ForumSearch";
 import { useErrorAlert } from "../../../components/Alerts";
 import { UserContext } from "../../../Contexts";
+import { NameWithAvatar } from "../../User/User";
 
-import "../../../css/forums.css";
+import "css/forums.css";
+import {
+  Divider,
+  IconButton,
+  Popover,
+  Stack,
+  Typography,
+  Button,
+} from "@mui/material";
+import { useTheme } from "@mui/material/styles";
+import { usePopoverOpen } from "hooks/usePopoverOpen";
 
 export default function Forums() {
   const [forumNavInfo, updateForumNavInfo] = useForumNavInfo();
+  const [searchDialogOpen, setSearchDialogOpen] = useState(false);
 
   return (
     <div className="forums">
-      <ForumNav forumNavInfo={forumNavInfo} />
-      <Switch>
+      <ForumNav
+        forumNavInfo={forumNavInfo}
+        onSearchClick={() => setSearchDialogOpen(true)}
+      />
+      <Routes>
         <Route
-          exact
-          path="/community/forums"
-          render={() => <Categories updateForumNavInfo={updateForumNavInfo} />}
+          path="/"
+          element={<Categories updateForumNavInfo={updateForumNavInfo} />}
         />
         <Route
-          exact
-          path="/community/forums/board/:boardId"
-          render={() => <Board updateForumNavInfo={updateForumNavInfo} />}
+          path="board/:boardId"
+          element={<Board updateForumNavInfo={updateForumNavInfo} />}
         />
         <Route
-          exact
-          path="/community/forums/thread/:threadId"
-          render={() => <Thread updateForumNavInfo={updateForumNavInfo} />}
+          path="thread/:threadId"
+          element={<Thread updateForumNavInfo={updateForumNavInfo} />}
         />
-        <Route render={() => <Redirect to="/community/forums" />} />
-      </Switch>
+        <Route
+          path="search"
+          element={<SearchResults updateForumNavInfo={updateForumNavInfo} />}
+        />
+        <Route path="*" element={<Navigate to="/" />} />
+      </Routes>
+      <ForumSearch
+        open={searchDialogOpen}
+        onClose={() => setSearchDialogOpen(false)}
+      />
     </div>
   );
 }
@@ -62,6 +90,17 @@ function ForumNav(props) {
               {forumNavInfo.thread.title}
             </NavLink>
           )}
+        </div>
+        <div className="forum-nav-actions" style={{ marginLeft: "auto" }}>
+          <Button
+            onClick={props.onSearchClick}
+            startIcon="🔎"
+            variant="text"
+            size="small"
+            sx={{ color: "text.secondary" }}
+          >
+            Search
+          </Button>
         </div>
       </div>
     </div>
@@ -103,6 +142,7 @@ function useForumNavInfo() {
 }
 
 export function VoteWidget(props) {
+  const theme = useTheme();
   const item = props.item;
   const itemType = props.itemType;
   const itemHolder = props.itemHolder;
@@ -111,6 +151,13 @@ export function VoteWidget(props) {
 
   const user = useContext(UserContext);
   const errorAlert = useErrorAlert();
+  const [userVotes, setUserVotes] = useState([]);
+
+  const upvoters = userVotes.slice().filter((vote) => vote.direction === 1);
+  const downvoters = userVotes.slice().filter((vote) => vote.direction === -1);
+
+  const { popoverOpen, popoverClasses, anchorEl, handleClick, closePopover } =
+    usePopoverOpen();
 
   function updateItemVoteCount(direction, newDirection) {
     var voteCount = item.voteCount;
@@ -133,7 +180,7 @@ export function VoteWidget(props) {
     if (!user.perms.vote) return;
 
     axios
-      .post("/forums/vote", {
+      .post("/api/forums/vote", {
         item: itemId,
         itemType,
         direction,
@@ -172,18 +219,103 @@ export function VoteWidget(props) {
       .catch(errorAlert);
   }
 
+  function getVotes(e, itemId) {
+    if (!user.perms.viewVotes) return;
+    handleClick(e);
+    axios.get(`/api/forums/vote/${itemId}`).then((res) => {
+      setUserVotes(res.data);
+    });
+  }
+
   return (
-    <div className="vote-widget">
-      <i
-        className={`fas fa-arrow-up ${item.vote === 1 && "sel"}`}
+    <Stack direction="column">
+      <IconButton
+        className={`fas fa-arrow-up`}
+        sx={{
+          fontSize: "1em",
+          ...(item.vote === 1 ? { color: theme.palette.info.main } : {}),
+        }}
         onClick={() => onVote(item.id, 1)}
       />
-      {item.voteCount || 0}
-      <i
-        className={`fas fa-arrow-down ${item.vote === -1 && "sel"}`}
+      <IconButton
+        onClick={(e) => getVotes(e, item.id)}
+        sx={{
+          position: "relative",
+          fontSize: "1em",
+          minWidth: "2em",
+          minHeight: "2em",
+        }}
+      >
+        <Typography
+          sx={{
+            position: "absolute",
+            lineHeight: "1",
+          }}
+        >
+          {item.voteCount || 0}
+        </Typography>
+      </IconButton>
+      <IconButton
+        className={`fas fa-arrow-down`}
+        sx={{
+          fontSize: "1em",
+          ...(item.vote === -1 ? { color: theme.palette.info.main } : {}),
+        }}
         onClick={() => onVote(item.id, -1)}
       />
-    </div>
+      <Popover
+        open={popoverOpen}
+        sx={popoverClasses}
+        anchorEl={anchorEl}
+        anchorOrigin={{
+          vertical: "center",
+          horizontal: "right",
+        }}
+        transformOrigin={{
+          vertical: "center",
+          horizontal: "left",
+        }}
+        onClose={closePopover}
+        disableScrollLock
+        disableRestoreFocus
+      >
+        <Stack
+          direction="column"
+          spacing={1}
+          sx={{
+            p: 1,
+          }}
+        >
+          <i className="fas fa-arrow-up" style={{ alignSelf: "center" }} />
+          {upvoters.map((e) => (
+            <NameWithAvatar
+              small
+              id={e.voter.id}
+              name={e.voter.name}
+              vanityUrl={e.voter.vanityUrl}
+              avatar={e.voter.avatar}
+            />
+          ))}
+          {upvoters.length === 0 && (
+            <Typography sx={{ alignSelf: "center" }}>None</Typography>
+          )}
+          <Divider orientation="horizontal" flexItem />
+          {downvoters.map((e) => (
+            <NameWithAvatar
+              small
+              id={e.voter.id}
+              name={e.voter.name}
+              vanityUrl={e.voter.vanityUrl}
+              avatar={e.voter.avatar}
+            />
+          ))}
+          {downvoters.length === 0 && (
+            <Typography sx={{ alignSelf: "center" }}>None</Typography>
+          )}
+          <i className="fas fa-arrow-down" style={{ alignSelf: "center" }} />
+        </Stack>
+      </Popover>
+    </Stack>
   );
 }
 

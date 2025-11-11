@@ -1,4 +1,4 @@
-NODE_ENV=development
+NODE_ENV=development_docker
 PORT=3000
 UPLOAD_PATH=uploads
 BASE_URL=http://localhost:3001
@@ -32,11 +32,7 @@ FIREBASE_APP_ID=x
 FIREBASE_MEASUREMENT_ID=x
 FIREBASE_JSON_FILE=firebase.json
 
-EMAIL_DOMAINS=["gmail.com"]
-
-# optional
-AGORA_ID=x
-AGORA_CERT=x
+EMAIL_DOMAINS=["gmail.com", "hotmail.com", "aol.com", "msn.com", "yandex.ru", "live.com", "icloud.com", "gmail.com.sg", "yahoo.com", "mail.com", "outlook.com", "hotmail.co.uk"]
 
 # optional
 IP_API_URL=https://ipqualityscore.com/api/json/ip

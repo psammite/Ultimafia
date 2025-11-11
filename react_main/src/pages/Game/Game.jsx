@@ -1,40 +1,50 @@
 import React, {
   useState,
   useEffect,
-  useLayoutEffect,
   useReducer,
   useContext,
   useRef,
+  useMemo,
+  useCallback,
+  createContext,
 } from "react";
-import { useParams, Switch, Route, Redirect } from "react-router-dom";
+import {
+  useParams,
+  Route,
+  Navigate,
+  Routes,
+  Link,
+  useNavigate,
+} from "react-router-dom";
 import update from "immutability-helper";
 import axios from "axios";
-// import AgoraRTC from "agora-rtc-sdk-ng";
 import ReactLoading from "react-loading";
 
 import { UserText } from "../../components/Basic";
-import LoadingPage from "../Loading";
+import { ObituariesMessage } from "../../components/gameComponents/Newspaper";
 import MafiaGame from "./MafiaGame";
-import SplitDecisionGame from "./SplitDecisionGame";
 import ResistanceGame from "./ResistanceGame";
-import OneNightGame from "./OneNightGame";
-import GhostGame from "./GhostGame";
+import JottoGame from "./JottoGame";
 import AcrotopiaGame from "./AcrotopiaGame";
 import SecretDictatorGame from "./SecretDictatorGame";
 import WackyWordsGame from "./WackyWordsGame";
-import {
-  GameContext,
-  PopoverContext,
-  SiteInfoContext,
-  UserContext,
-} from "../../Contexts";
-import Dropdown, { useDropdown } from "../../components/Dropdown";
+import LiarsDiceGame from "./LiarsDiceGame";
+import TexasHoldEmGame from "./TexasHoldEmGame";
+import CheatGame from "./CheatGame";
+import BattlesnakesGame from "./BattlesnakesGame";
+import DiceWarsGame from "./DiceWarsGame";
+import ConnectFourGame from "./ConnectFourGame";
+import { GameContext, SiteInfoContext, UserContext } from "Contexts";
+import Dropdown from "../../components/Dropdown";
 import Setup from "../../components/Setup";
 import { NameWithAvatar } from "../User/User";
 import { ClientSocket as Socket } from "../../Socket";
 import { RoleCount } from "../../components/Roles";
 import Form, { useForm } from "../../components/Form";
 import { Modal } from "../../components/Modal";
+import SiteLogo from "../../components/SiteLogo";
+import LeaveGameDialog from "../../components/LeaveGameDialog";
+import ReportDialog from "../../components/ReportDialog";
 import { useErrorAlert } from "../../components/Alerts";
 import {
   MaxGameMessageLength,
@@ -43,35 +53,84 @@ import {
 } from "../../Constants";
 import { textIncludesSlurs } from "../../lib/profanity";
 
-import "../../css/game.css";
-import { adjustColor, flipTextColor } from "../../utils";
+import "css/game.css";
 import EmotePicker from "../../components/EmotePicker";
-import JottoGame from "./JottoGame";
+import "./Game.css";
+import { NewLoading } from "../Welcome/NewLoading";
+import StateSwitcher from "../../components/gameComponents/StateSwitcher";
+
+import { randomizeMeetingTargetsWithSeed } from "../../utilsFolder";
+import { useIsPhoneDevice } from "../../hooks/useIsPhoneDevice";
+import { useLongPress } from "../../hooks/useLongPress.jsx";
+import {
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Badge,
+  Box,
+  Button,
+  ButtonGroup,
+  Divider,
+  IconButton,
+  Stack,
+  Tab,
+  Tabs,
+  Tooltip,
+  TextField,
+  Typography,
+  useTheme,
+  BottomNavigation,
+  BottomNavigationAction,
+  Paper,
+  useMediaQuery,
+} from "@mui/material";
+import { PlayerCount } from "../Play/LobbyBrowser/PlayerCount";
+import { getSetupBackgroundColor } from "../Play/LobbyBrowser/gameRowColors.js";
+
+import lore from "images/emotes/lore.webp";
+import poison from "images/emotes/poison.webp";
+import unicorn from "images/emotes/unicorn.webp";
+import exit from "images/emotes/exit.png";
+import veg from "images/emotes/veg.webp";
+import system from "images/emotes/system.webp";
+import { usePopover } from "components/Popover";
+
+import dice1 from "images/emotes/dice1.webp";
+import dice2 from "images/emotes/dice2.webp";
+import dice3 from "images/emotes/dice3.webp";
+import dice4 from "images/emotes/dice4.webp";
+import dice5 from "images/emotes/dice5.webp";
+import dice6 from "images/emotes/dice6.webp";
+import { Timer } from "components/gameComponents/Timer";
+import { ChangeHeadPing } from "components/gameComponents/ChangeHeadPing";
+import RoleRevealModal from "components/gameComponents/RoleRevealModal";
+import ChangeSetupDialog from "components/gameComponents/ChangeSetupDialog";
+
+const emoteMap = {
+  dice1: dice1,
+  dice2: dice2,
+  dice3: dice3,
+  dice4: dice4,
+  dice5: dice5,
+  dice6: dice6,
+};
+
+const NO_ONE_NAME = "no one";
+const MAGUS_NAME = "Declare Magus Game";
+
+export const GameTypeContext = createContext({
+  singleState: false,
+});
 
 export default function Game() {
-  return (
-    <Switch>
-      <Route
-        exact
-        path="/game/:gameId"
-        render={(props) => <GameWrapper key={props.match.params.gameId} />}
-      />
-      <Route
-        exact
-        path="/game/:gameId/review"
-        render={() => <GameWrapper review />}
-      />
-      <Redirect to="/play" />
-    </Switch>
-  );
-}
-
-function GameWrapper(props) {
+  const user = useContext(UserContext);
   const [loaded, setLoaded] = useState(false);
+  const [review, setReview] = useState(false);
   const [leave, setLeave] = useState(false);
   const [finished, setFinished] = useState(false);
   const [port, setPort] = useState();
   const [gameType, setGameType] = useState();
+  const [startTime, setStartTime] = useState(Date.now());
   const [token, setToken] = useState();
   const [socket, setSocket] = useState({});
   const [connected, setConnected] = useState(0);
@@ -85,9 +144,7 @@ function GameWrapper(props) {
   const [isSpectator, setIsSpectator] = useState(false);
   const [self, setSelf] = useState();
   const [lastWill, setLastWill] = useState("");
-  const [timers, updateTimers] = useTimersReducer();
   const [settings, updateSettings] = useSettingsReducer();
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showFirstGameModal, setShowFirstGameModal] = useState(false);
   const [speechFilters, setSpeechFilters] = useState({
     from: "",
@@ -95,27 +152,183 @@ function GameWrapper(props) {
   });
   const [isolationEnabled, setIsolationEnabled] = useState(false);
   const [isolatedPlayers, setIsolatedPlayers] = useState(new Set());
-  const [rolePredictions, setRolePredictions] = useState({});
-  const [activeVoiceChannel, setActiveVoiceChannel] = useState();
-  const [muted, setMuted] = useState(false);
-  const [deafened, setDeafened] = useState(false);
   const [rehostId, setRehostId] = useState();
   const [dev, setDev] = useState(false);
+  const [pingInfo, setPingInfo] = useState(null);
+  const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
+  const [roleRevealModalOpen, setRoleRevealModalOpen] = useState(false);
+  const [roleRevealData, setRoleRevealData] = useState(null);
+  const [hostId, setHostId] = useState(null);
+  const [changeSetupDialogOpen, setChangeSetupDialogOpen] = useState(false);
 
   const playersRef = useRef();
   const selfRef = useRef();
-  // const agoraClient = useRef();
-  const localAudioTrack = useRef();
   const noLeaveRef = useRef();
 
-  const [activity, updateActivity] = useActivity(localAudioTrack);
   const [playAudio, loadAudioFiles, stopAudio, stopAudios, setVolume] =
     useAudio(settings);
   const siteInfo = useContext(SiteInfoContext);
   const errorAlert = useErrorAlert();
+  const isPhoneDevice = useIsPhoneDevice();
   const { gameId } = useParams();
+  const nagivate = useNavigate();
+  const [selectedPanel, setSelectedPanel] = useState("chat");
 
-  const audioFileNames = ["bell", "ping", "tick"];
+  const isParticipant = !isSpectator && !review;
+  const currentStateObject = history.states[history.currentState];
+  const unresolvedActionCount = Object.values(
+    currentStateObject ? currentStateObject.meetings : {}
+  ).filter(
+    (meeting) => !meeting.playerHasVoted && meeting.voting && meeting.canVote
+  ).length;
+
+  function onLeaveGameClick() {
+    if (
+      history.currentState == -1 ||
+      history.currentState == -2 ||
+      finished ||
+      !isParticipant
+    ) {
+      leaveGame();
+    } else {
+      setLeaveDialogOpen(true);
+    }
+  }
+
+  function leaveGame() {
+    if (finished) siteInfo.hideAllAlerts();
+
+    if (socket.on) socket.send("leave");
+    else setLeave(true);
+
+    if (gameId === user.inGame) {
+      user.setInGame(null);
+    }
+
+    setLeaveDialogOpen(false);
+  }
+
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (e.key === "Escape") {
+        onLeaveGameClick();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
+  const [persistentGameData, updatePersistentGameData] = useReducer(
+    (state, action) => {
+      let newState = state;
+      let persistAfterAction = true;
+
+      switch (action.type) {
+        case "addPinnedMessage": {
+          if (action.message && action.message.id) {
+            newState = update(state, {
+              pinnedMessages: {
+                [action.message.id]: { $set: action.message },
+              },
+            });
+          }
+          break;
+        }
+        case "removePinnedMessage": {
+          if (action.messageId) {
+            newState = update(state, {
+              pinnedMessages: {
+                $unset: [action.messageId],
+              },
+            });
+          }
+          break;
+        }
+        case "toggleRolePrediction": {
+          if (action.prediction === null) {
+            newState = update(state, {
+              rolePredictions: {
+                $unset: [action.playerId],
+              },
+            });
+          } else {
+            newState = update(state, {
+              rolePredictions: {
+                [action.playerId]: { $set: action.prediction },
+              },
+            });
+          }
+          break;
+        }
+        case "setPersistentGameData": {
+          persistAfterAction = false;
+          newState = action.state;
+          break;
+        }
+        default: {
+          throw Error("Unknown action: " + action.type);
+        }
+      }
+
+      if (persistAfterAction) {
+        // Save data in localStorage for remembering it in future refreshes
+        window.localStorage.setItem(
+          "persistentGameData",
+          JSON.stringify({
+            state: newState,
+            gameId: gameId,
+          })
+        );
+      }
+
+      return newState;
+    },
+    {
+      rolePredictions: {},
+      pinnedMessages: {},
+    }
+  );
+
+  // If a user refreshes, retain their persistent game data
+  useEffect(() => {
+    let _persistentGameData = window.localStorage.getItem("persistentGameData");
+
+    if (_persistentGameData) {
+      _persistentGameData = JSON.parse(_persistentGameData);
+
+      if (_persistentGameData.gameId !== gameId) {
+        window.localStorage.removeItem("persistentGameData");
+      } else {
+        updatePersistentGameData({
+          type: "setPersistentGameData",
+          state: _persistentGameData.state,
+        });
+      }
+    }
+  }, []);
+
+  function isMessagePinned(message) {
+    return message && message.id in persistentGameData.pinnedMessages;
+  }
+
+  function onPinMessage(message) {
+    if (isMessagePinned(message)) {
+      updatePersistentGameData({
+        type: "removePinnedMessage",
+        messageId: message.id,
+      });
+    } else {
+      updatePersistentGameData({
+        type: "addPinnedMessage",
+        message: message,
+      });
+    }
+  }
+
+  const audioFileNames = ["bell", "ping", "tick", "vegPing"];
   const audioLoops = [false, false, false];
   const audioOverrides = [false, false, false];
   const audioVolumes = [1, 1, 1];
@@ -131,26 +344,27 @@ function GameWrapper(props) {
     setIsolatedPlayers(newIsolatedPlayers);
   };
 
-  function toggleRolePrediction(playerId) {
-    return function (prediction) {
-      let newRolePredictions = rolePredictions;
-      newRolePredictions[playerId] = prediction;
-      if (prediction === null) {
-        delete newRolePredictions[playerId];
-      }
-      setRolePredictions(newRolePredictions);
-    };
-  }
+  const toggleRolePrediction = (playerId, prediction) => {
+    updatePersistentGameData({
+      type: "toggleRolePrediction",
+      playerId: playerId,
+      prediction: prediction,
+    });
+  };
 
   useEffect(() => {
     if (token == null) return;
 
     var socketURL;
 
-    if (process.env.REACT_APP_USE_PORT === "true")
-      socketURL = `${process.env.REACT_APP_SOCKET_PROTOCOL}://${process.env.REACT_APP_SOCKET_URI}:${port}`;
+    if (import.meta.env.REACT_APP_USE_PORT === "true")
+      socketURL = `${import.meta.env.REACT_APP_SOCKET_PROTOCOL}://${
+        import.meta.env.REACT_APP_SOCKET_URI
+      }:${port}`;
     else
-      socketURL = `${process.env.REACT_APP_SOCKET_PROTOCOL}://${process.env.REACT_APP_SOCKET_URI}/${port}`;
+      socketURL = `${import.meta.env.REACT_APP_SOCKET_PROTOCOL}://${
+        import.meta.env.REACT_APP_SOCKET_URI
+      }/${port}`;
 
     var newSocket = new Socket(socketURL);
     newSocket.on("connected", () => setConnected(connected + 1));
@@ -172,17 +386,9 @@ function GameWrapper(props) {
   useEffect(() => {
     updateSettings({ type: "load" });
 
-    if (!props.review) {
-      document.title = `Game ${gameId} | UltiMafia`;
+    if (!review) {
       loadAudioFiles(audioFileNames, audioLoops, audioOverrides, audioVolumes);
       requestNotificationAccess();
-
-      var timerInterval = setInterval(() => {
-        updateTimers({
-          type: "updateAll",
-          playAudio,
-        });
-      }, 1000);
 
       function onKeydown() {
         var speechInput = document.getElementById("speechInput");
@@ -201,17 +407,13 @@ function GameWrapper(props) {
       return () => {
         window.removeEventListener("keydown", onKeydown);
 
-        clearInterval(timerInterval);
         stopAudio();
-        // agoraDisconnect();
-
-        if (localAudioTrack.current) localAudioTrack.current.close();
       };
     } else {
       document.title = `Review Game ${gameId} | UltiMafia`;
 
       axios
-        .get(`/game/${gameId}/review/data`)
+        .get(`/api/game/${gameId}/review/data`)
         .then((res) => {
           var data = res.data;
 
@@ -223,8 +425,10 @@ function GameWrapper(props) {
 
           setGameType(data.type);
           setSetup(data.setup);
+          setStartTime(data.startTime);
 
           setOptions({
+            lobby: data.lobby,
             ranked: data.ranked,
             competitive: data.competitive,
             spectating: data.spectating,
@@ -248,6 +452,8 @@ function GameWrapper(props) {
               avatar: data.users[i] ? data.users[i].avatar : false,
               textColor: data.users[i] && data.users[i].settings.textColor,
               nameColor: data.users[i] && data.users[i].settings.nameColor,
+              customEmotes:
+                data.users[i] && data.users[i].settings.customEmotes,
               left: data.left.indexOf(data.players[i]) !== -1,
             };
           }
@@ -264,7 +470,7 @@ function GameWrapper(props) {
           errorAlert(e);
         });
     }
-  }, []);
+  }, [review]);
 
   useEffect(() => {
     selfRef.current = self;
@@ -278,28 +484,13 @@ function GameWrapper(props) {
     playersRef.current = players;
   }, [players]);
 
-  // useEffect(() => {
-  //   if (!options.voiceChat || props.review) return;
-
-  //   if (!activeVoiceChannel) {
-  //     agoraDisconnect();
-  //     return;
-  //   }
-
-  //   var state = history.states[history.currentState];
-  //   var meeting = state && state.meetings[activeVoiceChannel];
-  //   var vcToken = meeting && meeting.vcToken;
-
-  //   if (vcToken) agoraConnect(activeVoiceChannel, vcToken);
-  // }, [activeVoiceChannel]);
-
   useEffect(() => {
     if (socket.readyState !== 1) {
       if (
         (socket.readyState == null || socket.readyState === 3) &&
         !leave &&
         !finished &&
-        !props.review
+        !review
       ) {
         getConnectionInfo();
       }
@@ -307,6 +498,7 @@ function GameWrapper(props) {
       return;
     }
 
+    console.log("[WEBSOCKET] Successfully connected");
     if (token) socket.send("auth", token);
     else
       socket.send("join", {
@@ -322,6 +514,7 @@ function GameWrapper(props) {
     });
 
     socket.on("loaded", () => {
+      console.log("[WEBSOCKET] loaded");
       setLoaded(true);
     });
 
@@ -337,11 +530,14 @@ function GameWrapper(props) {
       setEmojis(emojis);
     });
 
+    socket.on("finished", () => setFinished(true));
+
     socket.on("state", (state) => {
       updateHistory({ type: "addState", state: state });
     });
 
     socket.on("history", (history) => {
+      console.log("[WEBSOCKET] Retrieved history", history);
       updateHistory({
         type: "set",
         history,
@@ -377,9 +573,44 @@ function GameWrapper(props) {
       setSelf(playerId);
     });
 
-    socket.on("reveal", (info) => {
-      toggleRolePrediction(info.playerId)(null);
+    socket.on("obituaries", (info) => {
+      updateHistory({
+        type: "obituaries",
+        obituariesMessage: info,
+      });
+    });
 
+    // socket.on("winners", (info) => {
+    //   updateHistory({
+    //     type: "winners",
+    //     winnersMessage: info,
+    //   });
+    // });
+
+    socket.on("reveal", (info) => {
+      toggleRolePrediction(info.playerId, null);
+
+      updateHistory({
+        type: "reveal",
+        playerId: info.playerId,
+        role: info.role,
+      });
+    });
+
+    socket.on("roleReveal", (info) => {
+      // Only show modal if this is for the current player and game type supports it
+      if (
+        info.playerId === selfRef.current &&
+        (gameType === "Mafia" ||
+          gameType === "Resistance" ||
+          gameType === "Secret Dictator")
+      ) {
+        setRoleRevealData(info.roleData);
+        setRoleRevealModalOpen(true);
+      }
+
+      // Still update history for role prediction clearing
+      toggleRolePrediction(info.playerId, null);
       updateHistory({
         type: "reveal",
         playerId: info.playerId,
@@ -438,13 +669,22 @@ function GameWrapper(props) {
 
       const pings = message.content.match(/@[\w-]*/gm) || [];
 
+      const iWasPinged =
+        pings.indexOf("@" + playersRef?.current?.[selfRef?.current]?.name) !==
+        -1;
       if (
         selfRef.current &&
         playersRef.current[selfRef.current] &&
-        (pings.indexOf("@" + playersRef.current[selfRef.current].name) !== -1 ||
-          pings.indexOf("@everyone") !== -1)
+        (iWasPinged || pings.some((p) => p.startsWith("@every")))
       ) {
         playAudio("ping");
+        if (iWasPinged) {
+          const senderName = playersRef?.current?.[message?.senderId]?.name;
+          setPingInfo({
+            msg: `⚠ ${senderName} pinged you!`,
+            timestamp: new Date().getTime(),
+          });
+        }
       }
     });
 
@@ -477,45 +717,6 @@ function GameWrapper(props) {
       setShowFirstGameModal(true);
     });
 
-    socket.on("timerInfo", (info) => {
-      updateTimers({
-        type: "create",
-        timer: info,
-      });
-
-      if (
-        info.name === "pregameCountdown" &&
-        Notification &&
-        Notification.permission === "granted" &&
-        !document.hasFocus()
-      ) {
-        new Notification("Your game is starting!");
-      }
-    });
-
-    socket.on("clearTimer", (name) => {
-      updateTimers({
-        type: "clear",
-        name,
-      });
-    });
-
-    socket.on("time", (info) => {
-      updateTimers({
-        type: "update",
-        name: info.name,
-        time: info.time,
-      });
-    });
-
-    socket.on("typing", (info) => {
-      updateActivity({
-        type: "typing",
-        playerId: info.playerId,
-        meetingId: info.meetingId,
-      });
-    });
-
     socket.on("isSpectator", () => {
       setIsSpectator(true);
     });
@@ -525,10 +726,6 @@ function GameWrapper(props) {
         setLeave(true);
         siteInfo.hideAllAlerts();
       }
-    });
-
-    socket.on("finished", () => {
-      setFinished(true);
     });
 
     socket.on("error", (error) => {
@@ -542,17 +739,24 @@ function GameWrapper(props) {
   }, [connected]);
 
   function getConnectionInfo() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const isSpectating = urlParams.get("spectate") === "true";
+
+    const url = `/api/game/${gameId}/connect${
+      isSpectating ? "?spectate=true" : ""
+    }`;
+
     axios
-      .get(`/game/${gameId}/connect`)
+      .get(url)
       .then((res) => {
         setGameType(res.data.type);
         setPort(res.data.port);
         setToken(res.data.token || false);
+        setHostId(res.data.hostId);
       })
       .catch((e) => {
         var msg = e && e.response && e.response.data;
-
-        if (msg === "Game not found.") setLeave("review");
+        if (msg === "Game not found.") setReview(true);
         else {
           setLeave(true);
           errorAlert(e);
@@ -560,144 +764,157 @@ function GameWrapper(props) {
       });
   }
 
-  // function createAgoraClient() {
-  //   if (agoraClient.current) return;
+  function onMessageQuote(message) {
+    if (
+      !review &&
+      message.senderId !== "server" &&
+      !message.isQuote &&
+      message.quotable
+    ) {
+      socket.send("quote", {
+        messageId: message.id,
+        toMeetingId: history.states[history.currentState].selTab,
+        fromMeetingId: message.meetingId,
+        fromState: message.fromState ? message.fromState : stateViewing,
+        messageContent: message.content,
+      });
+    }
+  }
 
-  //   agoraClient.current = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+  function getSetupGameSetting(gameSetting) {
+    if (setup && setup.gameSettings && gameSetting in setup.gameSettings) {
+      return setup.gameSettings[gameSetting];
+    }
 
-  //   agoraClient.current.on("user-published", async (user, mediaType) => {
-  //     if (mediaType != "audio") return;
+    return null;
+  }
 
-  //     await agoraClient.current.subscribe(user, mediaType);
-
-  //     if (deafened) user.audioTrack.setVolume(0);
-
-  //     user.audioTrack.play();
-  //   });
-
-  //   agoraClient.current.on("user-unpublished", (user) => {
-  //     var audioContainer = document.getElementById(user.uid);
-
-  //     if (audioContainer) audioContainer.remove();
-  //   });
-  // }
-
-  // async function agoraConnect(meetingId, token) {
-  //   try {
-  //     if (!agoraClient.current) createAgoraClient();
-  //     else await agoraDisconnect();
-
-  //     await agoraClient.current.join(
-  //       process.env.REACT_APP_AGORA_ID,
-  //       meetingId,
-  //       token,
-  //       self
-  //     );
-
-  //     if (!localAudioTrack.current) {
-  //       localAudioTrack.current = await AgoraRTC.createMicrophoneAudioTrack();
-
-  //       if (muted) localAudioTrack.current.setVolume(0);
-  //     }
-
-  //     await agoraClient.current.publish([localAudioTrack.current]);
-  //   } catch (e) {
-  //     console.error(e);
-  //   }
-  // }
-
-  // async function agoraDisconnect() {
-  //   if (!agoraClient.current) return;
-
-  //   agoraClient.current.remoteUsers.forEach((user) => {
-  //     let audioContainer = document.getElementById(user.uid);
-
-  //     if (audioContainer) audioContainer.remove();
-  //   });
-
-  //   await agoraClient.current.leave();
-  // }
-
-  if (leave === "review") return <Redirect to={`/game/${gameId}/review`} />;
-  else if (leave) return <Redirect to="/play" />;
-  else if (rehostId) return <Redirect to={`/game/${rehostId}`} />;
+  if (leave) return <Navigate to="/play" />;
+  else if (rehostId) return <Navigate to={`/game/${rehostId}`} />;
   else if (!loaded || stateViewing == null)
     return (
       <div className="game">
-        <LoadingPage />
+        <NewLoading />
       </div>
     );
   else {
-    const context = {
+    const gameContext = {
+      gameId: gameId,
       socket: socket,
-      review: props.review,
+      review: review,
+      gameType: gameType,
       setup: setup,
+      getSetupGameSetting: getSetupGameSetting,
+      startTime: startTime,
       history: history,
       updateHistory: updateHistory,
+      unresolvedActionCount: unresolvedActionCount,
       stateViewing: stateViewing,
       updateStateViewing: updateStateViewing,
       self: self,
       isSpectator: isSpectator,
+      isParticipant: isParticipant,
       players: players,
       updatePlayers: updatePlayers,
-      timers: timers,
       options: options,
       spectatorCount: spectatorCount,
       lastWill: lastWill,
       emojis: emojis,
       setLeave: setLeave,
+      onLeaveGameClick: onLeaveGameClick,
+      leaveGame: leaveGame,
       finished: finished,
       settings: settings,
+      selectedPanel: selectedPanel,
+      setSelectedPanel: setSelectedPanel,
       updateSettings: updateSettings,
-      setShowSettingsModal: setShowSettingsModal,
       speechFilters: speechFilters,
       setSpeechFilters: setSpeechFilters,
       isolationEnabled,
       setIsolationEnabled,
       isolatedPlayers,
       togglePlayerIsolation,
-      rolePredictions,
+      rolePredictions: persistentGameData.rolePredictions,
       toggleRolePrediction,
+      pinnedMessages: persistentGameData.pinnedMessages,
+      onPinMessage: onPinMessage,
+      isMessagePinned: isMessagePinned,
+      onMessageQuote: onMessageQuote,
       loadAudioFiles: loadAudioFiles,
       playAudio: playAudio,
       stopAudio: stopAudio,
       stopAudios: stopAudios,
       setRehostId: setRehostId,
-      // agoraClient: agoraClient,
-      localAudioTrack: localAudioTrack,
-      setActiveVoiceChannel: setActiveVoiceChannel,
-      activity: activity,
-      muted: muted,
-      setMuted: setMuted,
-      deafened: deafened,
-      setDeafened: setDeafened,
       noLeaveRef,
       dev: dev,
+      hostId: hostId,
+      changeSetupDialogOpen: changeSetupDialogOpen,
+      setChangeSetupDialogOpen: setChangeSetupDialogOpen,
     };
 
     return (
-      <GameContext.Provider value={context}>
-        <div className="game no-highlight">
-          <SettingsModal
-            showModal={showSettingsModal}
-            setShowModal={setShowSettingsModal}
-            settings={settings}
-            updateSettings={updateSettings}
+      <GameContext.Provider value={gameContext}>
+        <ChangeHeadPing title={pingInfo?.msg} timestamp={pingInfo?.timestamp} />
+        <Stack
+          direction="column"
+          sx={{
+            height: "100%",
+          }}
+        >
+          <Box
+            className="game no-highlight"
+            sx={{
+              backgroundColor: "background.paper",
+            }}
+          >
+            <FirstGameModal
+              showModal={showFirstGameModal}
+              setShowModal={setShowFirstGameModal}
+            />
+            {gameType === "Mafia" && <MafiaGame />}
+            {gameType === "Resistance" && <ResistanceGame />}
+            {gameType === "Jotto" && <JottoGame />}
+            {gameType === "Acrotopia" && <AcrotopiaGame />}
+            {gameType === "Secret Dictator" && <SecretDictatorGame />}
+            {gameType === "Wacky Words" && <WackyWordsGame />}
+            {gameType === "Liars Dice" && <LiarsDiceGame />}
+            {gameType === "Texas Hold Em" && <TexasHoldEmGame />}
+            {gameType === "Cheat" && <CheatGame />}
+            {gameType === "Battlesnakes" && <BattlesnakesGame />}
+            {(gameType === "Dice Wars" || gameType === "DiceWars") && (
+              <DiceWarsGame />
+            )}
+            {gameType === "Connect Four" && <ConnectFourGame />}
+          </Box>
+        </Stack>
+        <LeaveGameDialog
+          open={leaveDialogOpen}
+          onClose={() => setLeaveDialogOpen(false)}
+          onConfirm={leaveGame}
+        />
+        {(gameType === "Mafia" ||
+          gameType === "Resistance" ||
+          gameType === "Secret Dictator") && (
+          <RoleRevealModal
+            open={roleRevealModalOpen}
+            onClose={() => setRoleRevealModalOpen(false)}
+            roleData={roleRevealData}
+            gameType={gameType}
           />
-          <FirstGameModal
-            showModal={showFirstGameModal}
-            setShowModal={setShowFirstGameModal}
-          />
-          {gameType === "Mafia" && <MafiaGame />}
-          {gameType === "Resistance" && <ResistanceGame />}
-          {gameType === "Split Decision" && <SplitDecisionGame />}
-          {gameType === "One Night" && <OneNightGame />}
-          {gameType === "Ghost" && <GhostGame />}
-          {gameType === "Jotto" && <JottoGame />}
-          {gameType === "Acrotopia" && <AcrotopiaGame />}
-          {gameType === "Secret Dictator" && <SecretDictatorGame />}
-          {gameType === "Wacky Words" && <WackyWordsGame />}
-        </div>
+        )}
+        <ChangeSetupDialog
+          open={changeSetupDialogOpen}
+          onClose={() => setChangeSetupDialogOpen(false)}
+          gameType={gameType}
+          currentSetup={setup}
+          onSetupChange={(setupId) => {
+            socket.send("speak", {
+              content: `/changeSetup ${setupId}`,
+              meetingId: "main",
+            });
+            setChangeSetupDialogOpen(false);
+          }}
+        />
       </GameContext.Provider>
     );
   }
@@ -711,207 +928,435 @@ export function useSocketListeners(listeners, socket) {
   }, [socket]);
 }
 
-export function TopBar(props) {
+export function TopBar() {
+  const game = useContext(GameContext);
+  const { singleState } = useContext(GameTypeContext);
+
+  const theme = useTheme();
+  const isPhoneDevice = useIsPhoneDevice();
   const { gameId } = useParams();
-  const infoRef = useRef();
   const errorAlert = useErrorAlert();
   const siteInfo = useContext(SiteInfoContext);
-  const popover = useContext(PopoverContext);
-  const hideStateSwitcher = props.hideStateSwitcher;
-
-  function onInfoClick(e) {
-    e.stopPropagation();
-    popover.onClick(
-      `/game/${gameId}/info`,
-      "game",
-      infoRef.current,
-      `Game ${gameId}`
-    );
-  }
-
-  function onLogoClick() {
-    window.open(process.env.REACT_APP_URL, "_blank");
-  }
-
-  function onSettingsClick() {
-    props.setShowSettingsModal(true);
-  }
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
 
   function onTestClick() {
-    for (let i = 0; i < props.setup.total - 1; i++)
+    for (let i = 0; i < game.setup.total - 1; i++)
       window.open(window.location + "?bot");
   }
 
-  function onLeaveGameClick() {
-    const shouldLeave =
-      props.finished ||
-      props.review ||
-      window.confirm("Are you sure you wish to leave?");
-
-    if (!shouldLeave) return;
-
-    if (props.finished) siteInfo.hideAllAlerts();
-
-    if (props.socket.on) props.socket.send("leave");
-    else props.setLeave(true);
+  function onReportClick() {
+    setReportDialogOpen(true);
   }
 
   function onRehostGameClick() {
-    props.noLeaveRef.current = true;
+    game.noLeaveRef.current = true;
 
-    if (props.socket.on) props.socket.send("leave");
+    if (game.socket.on) game.socket.send("leave");
 
     setTimeout(() => {
       var stateLengths = {};
 
-      for (let stateName in props.options.stateLengths)
-        stateLengths[stateName] = props.options.stateLengths[stateName] / 60000;
+      for (let stateName in game.options.stateLengths)
+        stateLengths[stateName] = game.options.stateLengths[stateName] / 60000;
 
       axios
-        .post("/game/host", {
+        .post("/api/game/host", {
           rehost: gameId,
-          gameType: props.gameType,
-          setup: props.setup.id,
-          lobby: props.options.lobby,
-          private: props.options.private,
-          spectating: props.options.spectating,
-          guests: props.options.guests,
-          ranked: props.options.ranked,
-          competitive: props.options.competitive,
+          gameType: game.gameType,
+          setup: game.setup.id,
+          lobby: game.options.lobby,
+          private: game.options.private,
+          spectating: game.options.spectating,
+          guests: game.options.guests,
+          ranked: game.options.ranked,
+          competitive: game.options.competitive,
           stateLengths: stateLengths,
-          ...props.options.gameTypeOptions,
+          ...game.options.gameTypeOptions,
         })
-        .then((res) => props.setRehostId(res.data))
+        .then((res) => game.setRehostId(res.data))
         .catch((e) => {
-          props.noLeaveRef.current = false;
+          game.noLeaveRef.current = false;
           errorAlert(e);
         });
     }, 500);
   }
 
-  return (
-    <div className="top">
-      <div className="game-name-wrapper" onClick={onLogoClick}>
-        {props.gameName}
-      </div>
-      <div className="state-wrapper">
-        {!hideStateSwitcher && (
-          <StateSwitcher
-            history={props.history}
-            stateViewing={props.stateViewing}
-            updateStateViewing={props.updateStateViewing}
-          />
-        )}
-        {props.timer}
-      </div>
-      <div className="misc-wrapper">
-        {props.setup && <Setup setup={props.setup} maxRolesCount={10} />}
+  function onArchiveGameClick() {
+    axios
+      .post(`/api/game/${gameId}/archive`)
+      .then((res) => {
+        siteInfo.showAlert(res.data, "success");
+      })
+      .catch((e) => {
+        errorAlert(e);
+      });
+  }
 
-        <div className="misc-left">
-          <div className="misc-buttons">
-            {props.options.voiceChat && (
-              <i className="misc-icon fas fa-microphone" />
-            )}
-            <i
-              className="misc-icon fas fa-info-circle"
-              ref={infoRef}
-              onClick={onInfoClick}
-            />
-            <i className="misc-icon fas fa-cog" onClick={onSettingsClick} />
-            {props.dev && (
-              <i className="misc-icon fas fa-vial" onClick={onTestClick} />
-            )}
-          </div>
-          <div className="options">
-            {props.options.anonymousGame && !props.review && (
-              <i className="option-icon fas fa-theater-masks" />
-            )}
-            {!props.options.private && !props.review && (
-              <i className="fas fa-lock-open" />
-            )}
-            {props.options.private && !props.review && (
-              <i className="fas fa-lock" />
-            )}
-            {!props.review && (
-              <div className="player-count">
-                <i className="fas fa-users" />
-                {
-                  Object.values(props.players).filter((p) => !p.left).length
-                } / {props.setup.total}
-              </div>
-            )}
-            {!props.options.spectating && !props.review && (
-              <div className="no-spectator">
-                <i className="fas fa-eye-slash" />
-              </div>
-            )}
-            {props.options.spectating && !props.review && (
-              <div className="spectator-count">
-                <i className="fas fa-eye" />
-                {props.spectatorCount}
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="btn btn-theme leave-game" onClick={onLeaveGameClick}>
-          Leave
-        </div>
-        {!props.review && props.history.currentState == -2 && (
-          <div
-            className="btn btn-theme-sec rehost-game"
-            onClick={onRehostGameClick}
-          >
-            Rehost
-          </div>
-        )}
-      </div>
+  if (isPhoneDevice && game.selectedPanel !== "info") {
+    // The top bar doubles as an info panel for mobile
+    return <></>;
+  }
+
+  const logo = (
+    <div style={{ flex: "1" }} key="logo">
+      <Link to="/play" target="_blank" rel="noopener noreferrer">
+        <SiteLogo
+          sx={{
+            height: 75,
+            width: 145,
+          }}
+        />
+      </Link>
     </div>
+  );
+
+  const stateSwitcher = (
+    <Stack
+      direction="column"
+      spacing={1}
+      key="stateSwitcher"
+      sx={{
+        alignItems: "center",
+        justifyContent: "center",
+        flex: "none",
+      }}
+    >
+      {!singleState && (
+        <Paper>
+          <StateSwitcher />
+        </Paper>
+      )}
+    </Stack>
+  );
+
+  const setup = game.setup ? (
+    <Setup
+      setup={game.setup}
+      backgroundColor={getSetupBackgroundColor(game.options, false)}
+    />
+  ) : (
+    <></>
+  );
+
+  const buttonGroup = (
+    <ButtonGroup
+      variant="contained"
+      sx={{
+        alignSelf: "stretch",
+        backgroundColor: theme.palette.secondary.main,
+        borderRadius: 1,
+      }}
+    >
+      {game.review && (
+        <Tooltip title="Archive">
+          <IconButton size="large" onClick={onArchiveGameClick}>
+            <img src={lore} alt="Archive" />
+          </IconButton>
+        </Tooltip>
+      )}
+
+      {game.dev && game.history.currentState == -1 && (
+        <Tooltip title="Fill">
+          <IconButton size="large" onClick={onTestClick}>
+            <img src={poison} alt="Fill" />
+          </IconButton>
+        </Tooltip>
+      )}
+
+      {!game.review &&
+        game.history.currentState === -1 &&
+        game.self &&
+        game.players[game.self] &&
+        game.players[game.self].userId === game.hostId && (
+          <Tooltip title="Change Setup">
+            <IconButton
+              size="large"
+              onClick={() => game.setChangeSetupDialogOpen(true)}
+            >
+              <img src={unicorn} alt="Change Setup" />
+            </IconButton>
+          </Tooltip>
+        )}
+
+      {!game.review && game.history.currentState === -2 && (
+        <Tooltip title="Rehost">
+          <IconButton size="large" onClick={onRehostGameClick}>
+            <img src={veg} alt="Rehost" />
+          </IconButton>
+        </Tooltip>
+      )}
+
+      <Tooltip title="File Report">
+        <IconButton size="large" onClick={onReportClick}>
+          <img src={system} alt="Report" />
+        </IconButton>
+      </Tooltip>
+      <ReportDialog
+        open={reportDialogOpen}
+        onClose={() => setReportDialogOpen(false)}
+        prefilledArgs={{ game: gameId }}
+      />
+
+      {!isPhoneDevice && (
+        <Button
+          onClick={game.onLeaveGameClick}
+          startIcon={<img src={exit} alt="Leave" />}
+        >
+          Leave
+        </Button>
+      )}
+    </ButtonGroup>
+  );
+
+  if (!isPhoneDevice) {
+    // DESKTOP ================================================================
+    return (
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{
+          px: 1,
+          alignItems: "center",
+        }}
+      >
+        {logo}
+        {stateSwitcher}
+        <Stack
+          direction="row"
+          spacing={1}
+          key="miscWrapper"
+          ref={game.scrollDownTriggerRef}
+          sx={{
+            alignItems: "center",
+            flex: "1",
+            minWidth: "0px",
+          }}
+        >
+          {setup}
+          {buttonGroup}
+        </Stack>
+      </Stack>
+    );
+  } else {
+    // MOBILE ================================================================
+    return (
+      <Stack
+        direction="column"
+        spacing={1}
+        sx={{
+          p: 1,
+          flex: "1 1",
+        }}
+      >
+        <Stack direction="row" spacing={1}>
+          {logo}
+          {buttonGroup}
+        </Stack>
+        {setup}
+      </Stack>
+    );
+  }
+}
+
+function UnresolvedActionCount({ children }) {
+  const game = useContext(GameContext);
+
+  const { isParticipant, unresolvedActionCount } = game;
+
+  const hideBadge = !isParticipant || unresolvedActionCount === 0;
+
+  return (
+    <Badge
+      badgeContent={unresolvedActionCount}
+      color="primary"
+      invisible={hideBadge}
+      sx={{
+        "& .MuiBadge-badge": {
+          transform: "scale(1) translate(100%, -50%)",
+        },
+      }}
+    >
+      {children}
+    </Badge>
   );
 }
 
-export function ThreePanelLayout(props) {
+function MobileMenu() {
+  const game = useContext(GameContext);
+
+  const menuContent = (
+    <Stack
+      direction="column"
+      sx={{
+        flex: "1",
+        p: 1,
+      }}
+    >
+      <SettingsForm />
+      <Button
+        onClick={game.onLeaveGameClick}
+        startIcon={<img src={exit} alt="Leave" />}
+        sx={{
+          mt: "auto",
+        }}
+      >
+        Leave
+      </Button>
+    </Stack>
+  );
+
+  return <SideMenu scrollable title="Settings" content={menuContent} />;
+}
+
+export function MobileLayout({
+  outerLeftNavigationProps = {
+    label: "Players",
+    value: "players",
+    icon: <i className="fas fa-user" />,
+  },
+  outerLeftContent = <PlayerList />,
+  centerContent = <TextMeetingLayout />,
+  innerRightNavigationProps = {
+    label: "Actions",
+    value: "actions",
+    icon: (
+      <UnresolvedActionCount>
+        <i className="fas fa-bolt" />
+      </UnresolvedActionCount>
+    ),
+  },
+  innerRightContent = <ActionList />,
+  additionalInfoContent = <></>,
+}) {
+  const game = useContext(GameContext);
+  const { singleState } = useContext(GameTypeContext);
+  const isPhoneDevice = useIsPhoneDevice();
+
+  if (!isPhoneDevice) {
+    // Mobile only
+    return <></>;
+  }
+
+  const { selectedPanel, setSelectedPanel } = game;
+
+  function onBottomNavigationChange(event, newValue) {
+    if (newValue === "leave") {
+      onLeaveGameClick();
+    } else {
+      setSelectedPanel(newValue);
+    }
+  }
+
   return (
-    <div className="main">
+    <>
+      {selectedPanel === outerLeftNavigationProps.value && outerLeftContent}
+      {/* The additionalInfoContent displays after the mobile version of TopBar */}
+      {selectedPanel === "info" && <>{additionalInfoContent}</>}
+      {selectedPanel === "chat" && centerContent}
+      {selectedPanel === innerRightNavigationProps.value && innerRightContent}
+      {selectedPanel === "menu" && <MobileMenu />}
+      <Paper elevation={3}>
+        <Divider orientation="horizontal" />
+        <BottomNavigation
+          showLabels
+          value={selectedPanel}
+          onChange={onBottomNavigationChange}
+          sx={{
+            "& > .MuiBottomNavigationAction-root": {
+              minWidth: "unset",
+              width: "56px",
+            },
+          }}
+        >
+          <BottomNavigationAction {...outerLeftNavigationProps} />
+          <BottomNavigationAction
+            label="Info"
+            value="info"
+            icon={<i className="fas fa-info" />}
+          />
+          <Stack
+            direction="row"
+            onClick={() => setSelectedPanel("chat")}
+            sx={{
+              filter: selectedPanel !== "chat" ? "grayscale(100%)" : undefined,
+            }}
+          >
+            {!singleState && <Divider orientation="vertical" flexItem />}
+            <StateSwitcher stateRange={singleState ? 0 : undefined} />
+            {!singleState && <Divider orientation="vertical" flexItem />}
+          </Stack>
+          <BottomNavigationAction {...innerRightNavigationProps} />
+          <BottomNavigationAction
+            label="Menu"
+            value="menu"
+            icon={<i className="fas fa-bars" />}
+          />
+        </BottomNavigation>
+      </Paper>
+    </>
+  );
+}
+
+export function ThreePanelLayout({
+  leftPanelContent,
+  centerPanelContent,
+  rightPanelContent,
+}) {
+  const isPhoneDevice = useIsPhoneDevice();
+
+  if (isPhoneDevice) {
+    // Desktop only
+    return <></>;
+  }
+
+  return (
+    <Stack className="main" direction="row" sx={{ gap: 2 }}>
       <div className="left-panel panel with-radial-gradient">
-        {props.leftPanelContent}
+        {leftPanelContent}
       </div>
       <div className="center-panel panel with-radial-gradient">
-        {props.centerPanelContent}
+        {centerPanelContent}
       </div>
       <div className="right-panel panel with-radial-gradient">
-        {props.rightPanelContent}
+        {rightPanelContent}
       </div>
-    </div>
+    </Stack>
   );
 }
 
-export function TextMeetingLayout(props) {
+export function TextMeetingLayout() {
   const game = useContext(GameContext);
+  const { singleState } = useContext(GameTypeContext);
   const { isolationEnabled, isolatedPlayers } = game;
-  const {
-    combineMessagesFromAllMeetings,
-    history,
-    players,
-    stateViewing,
-    updateHistory,
-    setActiveVoiceChannel,
-  } = props;
+  const { history, players, stateViewing, updateHistory, settings, filters } =
+    game;
 
   const stateInfo = history.states[stateViewing];
   const meetings = stateInfo ? stateInfo.meetings : {};
   const alerts = stateInfo ? stateInfo.alerts : [];
+  const obituaries = stateInfo ? stateInfo.obituaries : {};
   const selTab = stateInfo && stateInfo.selTab;
 
   const [speechInput, setSpeechInput] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
   const [mouseMoved, setMouseMoved] = useState(false);
   const speechDisplayRef = useRef();
+  const hasMouse = useMediaQuery("(pointer:fine)");
 
   const speechMeetings = Object.values(meetings).filter(
     (meeting) => meeting.speech
   );
 
-  useLayoutEffect(() => doAutoScroll());
+  function onTabChange(event, newValue) {
+    updateHistory({
+      type: "selTab",
+      state: stateViewing,
+      meetingId: newValue,
+    });
+    setAutoScroll(true);
+  }
+
+  useEffect(() => doAutoScroll());
 
   useEffect(() => {
     if (stateViewing != null && !selTab && speechMeetings.length) {
@@ -939,13 +1384,6 @@ export function TextMeetingLayout(props) {
     return () => document.removeEventListener("mousemove", onMouseMove);
   }, []);
 
-  // useEffect(() => {
-  //   if (!selTab || !meetings[selTab] || !meetings[selTab].vcToken)
-  //     setActiveVoiceChannel(null);
-
-  //   setActiveVoiceChannel(selTab);
-  // }, [selTab, meetings]);
-
   function doAutoScroll() {
     if (autoScroll && speechDisplayRef.current)
       speechDisplayRef.current.scrollTop =
@@ -962,28 +1400,8 @@ export function TextMeetingLayout(props) {
     setAutoScroll(true);
   }
 
-  function onMessageQuote(message) {
-    if (
-      !props.review &&
-      message.senderId !== "server" &&
-      !message.isQuote &&
-      message.quotable
-    ) {
-      const fromState = combineMessagesFromAllMeetings
-        ? message.fromState
-        : stateViewing;
-
-      props.socket.send("quote", {
-        messageId: message.id,
-        toMeetingId: history.states[history.currentState].selTab,
-        fromMeetingId: message.meetingId,
-        fromState: fromState,
-      });
-    }
-  }
-
   function onSpeechScroll() {
-    if (!mouseMoved) {
+    if (hasMouse && !mouseMoved) {
       doAutoScroll();
       return;
     }
@@ -992,7 +1410,7 @@ export function TextMeetingLayout(props) {
 
     if (
       Math.round(speech.scrollTop + speech.clientHeight) >=
-      Math.round(speech.scrollHeight)
+      Math.round(speech.scrollHeight - 5)
     )
       setAutoScroll(true);
     else setAutoScroll(false);
@@ -1010,40 +1428,85 @@ export function TextMeetingLayout(props) {
     );
   });
 
-  var messages;
-  if (combineMessagesFromAllMeetings) {
-    messages = getAllMessagesToDisplay(history);
-  } else {
-    messages = getMessagesToDisplay(
-      meetings,
-      alerts,
-      selTab,
-      players,
-      props.settings,
-      props.filters
-    );
-  }
-  messages = messages.map((message, i) => {
-    const isNotServerMessage = message.senderId !== "server";
-    const unfocusedMessage =
-      isolationEnabled &&
-      isNotServerMessage &&
-      isolatedPlayers.size &&
-      !isolatedPlayers.has(message.senderId);
+  function shouldChainToPreviousMessage(message, previousMessage) {
+    if (!previousMessage) {
+      return false;
+    }
 
-    return (
-      <Message
-        message={message}
-        history={history}
-        players={players}
-        stateViewing={stateViewing}
-        key={message.id || message.messageId + message.time || i}
-        onMessageQuote={onMessageQuote}
-        settings={props.settings}
-        unfocusedMessage={unfocusedMessage}
-      />
-    );
-  });
+    if (message.senderId === "server" || message.senderId === "anonymous") {
+      return false;
+    }
+
+    if (Math.abs(message.time - previousMessage.time) > 30000) {
+      return false;
+    }
+
+    if (message.senderId === previousMessage.senderId) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  const messages = useMemo(() => {
+    var messageData;
+    if (singleState) {
+      messageData = getAllMessagesToDisplay(history);
+    } else {
+      messageData = getMessagesToDisplay(
+        meetings,
+        alerts,
+        obituaries,
+        selTab,
+        players,
+        settings,
+        filters
+      );
+    }
+
+    var previousMessage = null;
+    return messageData.map((message, i) => {
+      const isNotServerMessage = message.senderId !== "server";
+      const unfocusedMessage =
+        isolationEnabled &&
+        isNotServerMessage &&
+        isolatedPlayers.size &&
+        !isolatedPlayers.has(message.senderId);
+
+      const chainToPrevious = shouldChainToPreviousMessage(
+        message,
+        previousMessage
+      );
+      previousMessage = message;
+
+      return (
+        <Message
+          message={message}
+          review={game.review}
+          history={history}
+          players={players}
+          stateViewing={stateViewing}
+          key={message.id || message.messageId + message.time || i}
+          onMessageQuote={game.onMessageQuote}
+          onPinMessage={game.onPinMessage}
+          isMessagePinned={game.isMessagePinned}
+          settings={settings}
+          unfocusedMessage={unfocusedMessage}
+          chainToPrevious={chainToPrevious}
+        />
+      );
+    });
+  }, [
+    /* MEMO DEPENDENCIES: These variables can affect the messages that are rendered in the game.
+       This is a performance improvement for preventing unnecessary re-renders caused by GameWrapper.
+    */
+    stateInfo,
+    settings,
+    filters,
+    isolationEnabled,
+    isolatedPlayers,
+    game.pinnedMessages,
+  ]);
 
   var canSpeak = selTab;
   canSpeak =
@@ -1054,15 +1517,56 @@ export function TextMeetingLayout(props) {
     stateViewing === history.currentState &&
     meetings[selTab].amMember &&
     meetings[selTab].canTalk;
-
   return (
     <>
-      <div className="meeting-tabs">
-        {tabs.length > 0 && tabs}
-        {tabs.length === 0 && (
-          <div className="tab sel">{stateInfo && stateInfo.name}</div>
-        )}
-      </div>
+      <Box
+        className="meeting-tabs title-box"
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          overflow: "hidden",
+        }}
+      >
+        <Tabs
+          value={selTab || false}
+          onChange={onTabChange}
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{
+            flexGrow: 1,
+            minHeight: 36,
+            "& .MuiTab-root": {
+              textTransform: "none",
+              minHeight: 36,
+              fontWeight: 500,
+              fontSize: "0.9rem",
+            },
+          }}
+        >
+          {speechMeetings.map((meeting) => (
+            <Tab
+              key={meeting.id}
+              value={meeting.id}
+              label={meeting.name}
+              sx={{ paddingX: 1.5 }}
+            />
+          ))}
+
+          {speechMeetings.length === 0 && (
+            <Tab
+              value="noMeeting"
+              label={stateInfo?.name || "No Meeting"}
+              disabled
+            />
+          )}
+        </Tabs>
+
+        <Box sx={{ flexShrink: 0, ml: 1 }}>
+          <Timer />
+        </Box>
+      </Box>
+
       <div className="speech-wrapper">
         <div
           className="speech-display"
@@ -1072,25 +1576,17 @@ export function TextMeetingLayout(props) {
           {messages}
         </div>
         {canSpeak && (
-          <>
-            <SpeechInput
-              meetings={meetings}
-              selTab={selTab}
-              players={players}
-              options={props.options}
-              setup={props.setup}
-              socket={props.socket}
-              setAutoScroll={setAutoScroll}
-              // agoraClient={props.agoraClient}
-              localAudioTrack={props.localAudioTrack}
-              muted={props.muted}
-              setMuted={props.setMuted}
-              deafened={props.deafened}
-              setDeafened={props.setDeafened}
-              speechInput={speechInput}
-              setSpeechInput={setSpeechInput}
-            />
-          </>
+          <SpeechInput
+            meetings={meetings}
+            selTab={selTab}
+            players={players}
+            options={game.options}
+            socket={game.socket}
+            setAutoScroll={setAutoScroll}
+            speechInput={speechInput}
+            setSpeechInput={setSpeechInput}
+            whispersEnabled={game.getSetupGameSetting("Whispers")}
+          />
         )}
       </div>
     </>
@@ -1137,6 +1633,7 @@ function getAllMessagesToDisplay(history) {
 function getMessagesToDisplay(
   meetings,
   alerts,
+  obituaries,
   selTab,
   players,
   settings,
@@ -1173,6 +1670,32 @@ function getMessagesToDisplay(
     }
   }
 
+  for (let source in obituaries) {
+    const obituariesMessage = obituaries[source];
+    for (let i = 0; i <= messages.length; i++) {
+      if (i === messages.length) {
+        messages.push(obituariesMessage);
+        break;
+      } else if (obituariesMessage.time < messages[i].time) {
+        messages.splice(i, 0, obituariesMessage);
+        break;
+      }
+    }
+  }
+
+  //   for (let source in winners) {
+  //   const winnersMessage = winners[source];
+  //   for (let i = 0; i <= messages.length; i++) {
+  //     if (i === messages.length) {
+  //       messages.push(winnersMessage);
+  //       break;
+  //     } else if (winnersMessage.time < messages[i].time) {
+  //       messages.splice(i, 0, winnersMessage);
+  //       break;
+  //     }
+  //   }
+  // }
+
   if (!settings.votingLog) return messages;
 
   var voteRecord;
@@ -1192,7 +1715,7 @@ function getMessagesToDisplay(
 
     if (!isUnvote) {
       if (target !== "*" && players[target]) target = players[target].name;
-      else if (target === "*") target = "no one";
+      else if (target === "*") target = NO_ONE_NAME;
     }
 
     let voteMsg = {
@@ -1231,23 +1754,116 @@ function areSameDay(first, second) {
   return false;
 }
 
+function getContentClasses(message) {
+  const contentClasses = ["content"];
+
+  const tags = message.tags || [];
+
+  const isVoteMessage = message.senderId === "vote";
+  const isServerMessage = message.senderId === "server";
+  const isAnonymousMessage = message.senderId === "anonymous";
+  const isPlayerMessage =
+    !isVoteMessage && !isServerMessage && !isAnonymousMessage;
+
+  // First: get class for importance of message
+  if (tags.includes("important")) contentClasses.push("important");
+  else if (tags.includes("info")) contentClasses.push("info");
+  else contentClasses.push("important");
+
+  // Second: get class for kind of message
+  if (message.isQuote) contentClasses.push("quote");
+  else if (isServerMessage) contentClasses.push("server");
+  else if (isVoteMessage) contentClasses.push("vote-record");
+
+  // Make content clickable if it's quotable
+  if ((isPlayerMessage || isAnonymousMessage) && !message.isQuote) {
+    contentClasses.push("clickable");
+  }
+
+  return contentClasses;
+}
+
+/* CAUTION: This is rendered with useMemo in TextMeetingLayout, if you want to add something new to messages
+    then you may need to update the memo dependencies!
+*/
 function Message(props) {
+  const isPhoneDevice = useIsPhoneDevice();
+  const user = useContext(UserContext);
+  const [isHovering, setIsHovering] = useState(false);
+
+  // Mobile only - users pin message by long pressing them
+  const messageLongPress = useLongPress(
+    () => props.onPinMessage(props.message),
+    600
+  );
+
   const history = props.history;
   const players = props.players;
-  const user = useContext(UserContext);
-
+  const chainToPrevious = props.chainToPrevious;
   var message = props.message;
-  var player, quotedMessage;
-  var contentClass = "content ";
-  var isMe = false;
 
-  if (
-    message.senderId !== "server" &&
-    message.senderId !== "vote" &&
-    message.senderId !== "anonymous"
-  ) {
+  // message type flags
+  const isVoteMessage = message.senderId === "vote";
+  const isServerMessage = message.senderId === "server";
+  const isAnonymousMessage = message.senderId === "anonymous";
+  const isPlayerMessage =
+    !isVoteMessage && !isServerMessage && !isAnonymousMessage;
+
+  const hasNameplate = isPlayerMessage || isAnonymousMessage;
+  const isRightAligned = isVoteMessage;
+
+  // layout flags
+  const messageLayout = props.forceDefaultStyling
+    ? "default"
+    : props?.settings?.messageLayout || "default";
+  const denseMessages =
+    messageLayout === "compactInline" || messageLayout === "compactAligned";
+  const alignedNameplate = hasNameplate && messageLayout === "compactAligned";
+
+  // nameplate styling
+  const absoluteLeftAvatarPx = denseMessages ? undefined : "8px";
+  const smallAvatar = messageLayout === "defaultLarge" ? false : true;
+
+  const extraStyle = message.extraStyle;
+  var player, quotedMessage;
+  var contentClass = getContentClasses(message).join(" ") + " ";
+
+  const useAbsoluteTimestamp =
+    (chainToPrevious || isServerMessage) && !isRightAligned && !denseMessages;
+  const showThumbtack =
+    !props.review && !message.isQuote && isHovering && props.stateViewing >= 0;
+  const thumbtackFaClass = props.isMessagePinned(message)
+    ? "fas fa-thumbtack"
+    : "fas fa-thumbtack fa-rotate-270";
+
+  // If message is obituary, then short circuit and render that instead
+  if (message.obituaries) {
+    return (
+      <ObituariesMessage
+        message={message}
+        stateViewing={props.stateViewing}
+        settings={props.settings}
+        history={history}
+      />
+    );
+  }
+
+  // If message is winners, render the WinnersMessage instead
+  // if (message.winners) {
+  //   return (
+  //     <WinnersMessage
+  //       message={message}
+  //       stateViewing={props.stateViewing}
+  //       settings={props.settings}
+  //       history={history}
+  //     />
+  //   );
+  // }
+
+  if (isPlayerMessage) {
     player = players[message.senderId];
   }
+  var customEmotes = player ? player.customEmotes : null;
 
   if (message.isQuote) {
     var state = history.states[message.fromState];
@@ -1260,13 +1876,18 @@ function Message(props) {
 
     for (let msg of meeting.messages) {
       if (msg.id === message.messageId) {
+        const senderPlayer = players[msg.senderId];
+
+        let senderName = "Anonymous";
+        if (senderPlayer && msg.senderId !== "anonymous") {
+          senderName = senderPlayer.name;
+        }
+
         quotedMessage = { ...msg };
+        quotedMessage.senderName = senderName;
         quotedMessage.meetingName = meeting.name;
         quotedMessage.fromStateName = state.name;
-
-        if (msg.senderId === "anonymous")
-          quotedMessage.senderName = "Anonymous";
-        else quotedMessage.senderName = players[msg.senderId].name;
+        customEmotes = msg.customEmotes; // allow players to use other players' custom emotes if they quote them
         break;
       }
     }
@@ -1274,23 +1895,32 @@ function Message(props) {
 
   if (message.isQuote && !quotedMessage) return <></>;
 
-  if ((player || message.senderId === "anonymous") && !message.isQuote)
-    contentClass += "clickable ";
-
   if (!message.isQuote && message.content?.indexOf("/me ") === 0) {
-    isMe = true;
     message = { ...message };
     message.content = message.content.replace("/me ", "");
+    contentClass += "me ";
   }
-
-  if (message.isQuote) contentClass += "quote ";
-  else if (message.senderId === "server") contentClass += "server ";
-  else if (message.senderId === "vote") contentClass += "vote-record ";
-  else if (isMe) contentClass += "me ";
 
   const messageStyle = {};
   if (props.unfocusedMessage) {
     messageStyle.opacity = "0.2";
+  }
+
+  // Make room for floated avatar if not using compact messages by padding the left side of the message
+  if (!denseMessages) {
+    if (smallAvatar || !hasNameplate) {
+      messageStyle.paddingLeft = "32px"; // 24px avatar + 8px margin
+    } else {
+      messageStyle.paddingLeft = "56px"; // 40px avatar + 8px margin + 8px margin
+    }
+  }
+
+  if (!denseMessages && !chainToPrevious) {
+    messageStyle.marginTop = "8px";
+  }
+
+  if (isRightAligned) {
+    messageStyle.justifyContent = "flex-end";
   }
 
   const stateMeetings = history.states[props.stateViewing].meetings;
@@ -1298,12 +1928,19 @@ function Message(props) {
     stateMeetings !== undefined &&
     stateMeetings[message.meetingId] !== undefined;
 
-  const playerDead = props.stateViewing >= 0 && !message.alive;
+  const playerDead =
+    props.stateViewing >= 0 &&
+    message.alive !== undefined &&
+    message.alive !== true;
 
   var canHaveGreenText = false;
   if (player !== undefined) {
+    const playerFiddled =
+      message.content?.includes(
+        player.name + " says something, but you cannot hear them!"
+      ) || false;
     if (playerDead) {
-      contentClass += "dead";
+      contentClass += "dead ";
     } else if (
       stateMeetingDefined &&
       stateMeetings[message.meetingId].name === "Party!"
@@ -1315,6 +1952,8 @@ function Message(props) {
       areSameDay(Date.now(), player.birthday)
     ) {
       contentClass += " party ";
+    } else if (playerFiddled) {
+      contentClass += "fiddled ";
     } else {
       canHaveGreenText = true;
     }
@@ -1324,15 +1963,15 @@ function Message(props) {
     contentClass += "greentext ";
   }
 
+  if (denseMessages && isPlayerMessage) {
+    contentClass += "dense ";
+  }
+
   let avatarId;
 
   if (player !== undefined) {
     if (Object.keys(message.textColor ?? {}).length === 2) {
-      if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-        message.textColor = message.textColor["darkTheme"];
-      } else {
-        message.textColor = message.textColor["lightTheme"];
-      }
+      message.textColor = message.textColor["darkTheme"];
     }
 
     avatarId = player.anonId === undefined ? player.userId : player.anonId;
@@ -1342,105 +1981,288 @@ function Message(props) {
     }
 
     if (Object.keys(message.nameColor ?? {}).length === 2) {
-      if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-        message.nameColor = message.nameColor["darkTheme"];
-      } else {
-        message.nameColor = message.nameColor["lightTheme"];
-      }
+      message.nameColor = message.nameColor["darkTheme"];
     }
   }
+
+  function messageOnMouseEnter() {
+    setIsHovering(true);
+  }
+
+  function messageOnMouseLeave() {
+    setIsHovering(false);
+  }
+
+  // if right aligned, use flex direction row-reverse to put timestamp on right hand side
+  // otherwise if in compact mode AKA denseMessages, use inline display to keep everyone on one line if possible
+  // otherwise, use flex direction column when in non-compact mode so that nameplate can appear above content
+  // otherwise if there is no nameplate, use row to always keep everything on the same line
+  const innerClassName = isRightAligned
+    ? "message-inner-rightaligned"
+    : hasNameplate && denseMessages
+    ? "message-inner-inline"
+    : hasNameplate
+    ? "message-inner-nameplated"
+    : "message-inner-onelined";
+
+  const nameplateClassName = alignedNameplate
+    ? "nameplate-aligned"
+    : "nameplate";
 
   return (
     <div
       className="message"
       onDoubleClick={() => props.onMessageQuote(message)}
       style={messageStyle}
+      onMouseEnter={messageOnMouseEnter}
+      onMouseLeave={messageOnMouseLeave}
+      onTouchStart={messageLongPress.onTouchStart}
+      onTouchEnd={messageLongPress.onTouchEnd}
     >
-      <div className="sender">
-        {props.settings.timestamps && <Timestamp time={message.time} />}
-        {player && (
-          <NameWithAvatar
-            dead={playerDead && props.stateViewing > 0}
-            id={player.userId}
-            avatarId={avatarId}
-            name={player.name}
-            avatar={player.avatar}
-            color={
-              !user.settings?.ignoreTextColor && message.nameColor !== ""
-                ? message.nameColor
-                : ""
-            }
-            noLink
-            small
-          />
+      <div className={innerClassName}>
+        {(!chainToPrevious || denseMessages || isRightAligned) && (
+          <div
+            className={nameplateClassName}
+            style={{
+              flexDirection: denseMessages ? "row" : undefined,
+            }}
+          >
+            &#8203;
+            {props.settings.timestamps && (
+              <div
+                style={{
+                  position: useAbsoluteTimestamp ? "absolute" : undefined,
+                  left: useAbsoluteTimestamp ? "4px" : undefined,
+                }}
+              >
+                <Timestamp time={message.time} />
+              </div>
+            )}
+            {player && (
+              <NameWithAvatar
+                dead={playerDead && props.stateViewing > 0}
+                id={player.userId}
+                avatarId={avatarId}
+                name={player.name}
+                avatar={player.avatar}
+                color={
+                  !user.settings?.ignoreTextColor && message.nameColor !== ""
+                    ? message.nameColor
+                    : ""
+                }
+                noLink
+                small={smallAvatar}
+                absoluteLeftAvatarPx={absoluteLeftAvatarPx}
+              />
+            )}
+            {isAnonymousMessage && (
+              <NameWithAvatar
+                name="Anonymous"
+                noLink
+                small={smallAvatar}
+                absoluteLeftAvatarPx={absoluteLeftAvatarPx}
+              />
+            )}
+          </div>
         )}
-        {message.senderId === "anonymous" && (
-          <div className="name-with-avatar">Anonymous</div>
-        )}
-      </div>
-      <div
-        className={contentClass}
-        style={
-          !user.settings?.ignoreTextColor && message.textColor !== ""
-            ? // ? { color: flipTextColor(message.textColor) }
-              { color: message.textColor }
-            : {}
-        }
-      >
-        {!message.isQuote && (
-          <>
-            {message.prefix && <div className="prefix">({message.prefix})</div>}
-            <UserText
-              text={message.content}
-              settings={user.settings}
-              players={players}
-              filterProfanity
-              linkify
-              emotify
-              slangify
-              slangifySeed={message.time.toString()}
-              terminologyEmoticons={props.settings.terminologyEmoticons}
-              iconUsername
-            />
-          </>
-        )}
-        {message.isQuote && (
-          <>
-            <i className="fas fa-quote-left" />
-            <Timestamp time={quotedMessage.time} />
-            <div className="quote-info">
-              {`${quotedMessage.senderName} on ${quotedMessage.fromStateName}: `}
-            </div>
-            <div className="quote-content">
+        <div
+          className={contentClass}
+          style={{
+            ...(!user.settings?.ignoreTextColor && message.textColor !== ""
+              ? // ? { color: flipTextColor(message.textColor) }
+                { color: message.textColor }
+              : contentClass.includes("content")
+              ? extraStyle
+              : {}),
+          }}
+        >
+          {!message.isQuote && (
+            <>
+              {message.prefix && (
+                <div className="prefix" style={{ display: "inline" }}>
+                  ({message.prefix})
+                </div>
+              )}
               <UserText
-                text={quotedMessage.content}
+                text={message.content}
                 settings={user.settings}
                 players={players}
+                customEmotes={customEmotes}
                 filterProfanity
                 linkify
                 emotify
-                slangifySeed={quotedMessage.time.toString()}
+                slangify
+                slangifySeed={message.time.toString()}
+                terminologyEmoticons={props.settings.terminologyEmoticons}
                 iconUsername
+                roleify={props.settings.roleMentions}
               />
-            </div>
-            <i className="fas fa-quote-right" />
-          </>
-        )}
+            </>
+          )}
+          {message.isQuote && (
+            <>
+              <i className="fas fa-quote-left" />
+              <Timestamp time={quotedMessage.time} />
+              <span className="quote-info">
+                {`${quotedMessage.senderName} on ${quotedMessage.fromStateName}: `}
+              </span>
+              <span className="quote-content">
+                <UserText
+                  text={quotedMessage.content}
+                  settings={user.settings}
+                  players={players}
+                  customEmotes={customEmotes}
+                  filterProfanity
+                  linkify
+                  emotify
+                  slangifySeed={quotedMessage.time.toString()}
+                  iconUsername
+                  roleify={props.settings.roleMentions}
+                />
+              </span>
+              <i className="fas fa-quote-right" />
+            </>
+          )}
+        </div>
       </div>
+      {!isPhoneDevice && !isRightAligned && (
+        <div
+          className="pin-button-wrapper"
+          onClick={() => props.onPinMessage(message)}
+        >
+          {showThumbtack && (
+            <i
+              className={thumbtackFaClass}
+              style={{ cursor: "pointer", textAlign: "center" }}
+            />
+          )}
+        </div>
+      )}
     </div>
+  );
+}
+
+// function WinnersMessage(props) {
+//   const game = useContext(GameContext);
+//   const message = props.message;
+
+//   const winnersInfo = message.winners || {};
+//   const winnerGroups = winnersInfo.groups || [];
+//   const winnerPlayersByGroup = winnersInfo.players || {};
+//   const winnerMessages = winnersInfo.messages || [];
+
+//   let title = "Postgame Results";
+//   if (winnerGroups.length === 1) {
+//     title = `${winnerGroups[0]} Wins!`;
+//   } else if (winnerGroups.length > 1) {
+//     title = `${winnerGroups.join(" & ")} Win!`;
+//   }
+
+//   // didn't mess with deathMessage stuff
+//   const wins = winnerGroups.map((group, index) => {
+//     const groupPlayers = winnerPlayersByGroup[group] || [];
+//     const groupMessage = winnerMessages[index] || `${group} has won.`;
+
+//     return groupPlayers.length > 0
+//       ? groupPlayers.map((player) => ({
+//           id: player.userId || player.id,
+//           name: player.name,
+//           avatar: player.avatar,
+//           avatarId: player.avatarId,
+//           deathMessage: groupMessage,
+//           revealMessage: `${player.name} was a member of the ${group}.`,
+//           lastWill: "",
+//         }))
+//       : [
+//           {
+//             id: group,
+//             name: group,
+//             deathMessage: groupMessage,
+//             revealMessage: "",
+//             lastWill: "",
+//           },
+//         ];
+//   });
+
+//   const flattenedWins = wins.flat();
+
+//   return (
+//     <Newspaper
+//       title={title}
+//       timestamp={message.time}
+//       dayCount={message.dayCount || 0}
+//       deaths={flattenedWins}
+//       isAlignmentReveal={false}
+//     />
+//   );
+// }
+
+function WinnersMessage(props) {
+  const game = useContext(GameContext);
+  const message = props.message;
+
+  const winnersInfo = message.winners || {};
+  const winnerGroups = winnersInfo.groups || [];
+  const winnerPlayersByGroup = winnersInfo.players || {};
+  const winnerMessages = winnersInfo.messages || [];
+
+  let title = "Postgame Results";
+  if (winnerGroups.length === 1) {
+    title = `${winnerGroups[0]} Wins!`;
+  } else if (winnerGroups.length > 1) {
+    title = `${winnerGroups.join(" & ")} Win!`;
+  }
+
+  // didn't mess with deathMessage stuff
+  const wins = winnerGroups.map((group, index) => {
+    const groupPlayers = winnerPlayersByGroup[group] || [];
+    const groupMessage = winnerMessages[index] || `${group} has won.`;
+
+    return groupPlayers.length > 0
+      ? groupPlayers.map((player) => ({
+          id: player.userId || player.id,
+          name: player.name,
+          avatar: player.avatar,
+          avatarId: player.avatarId,
+          deathMessage: groupMessage,
+          revealMessage: `${player.name} was a member of the ${group}.`,
+          lastWill: "",
+        }))
+      : [
+          {
+            id: group,
+            name: group,
+            deathMessage: groupMessage,
+            revealMessage: "",
+            lastWill: "",
+          },
+        ];
+  });
+
+  const flattenedWins = wins.flat();
+
+  return (
+    <Newspaper
+      title={title}
+      timestamp={message.time}
+      dayCount={message.dayCount || 0}
+      deaths={flattenedWins}
+      isAlignmentReveal={false}
+    />
   );
 }
 
 export function Timestamp(props) {
   const time = new Date(props.time);
+
   var hours = String(time.getHours()).padStart(2, "0");
   var minutes = String(time.getMinutes()).padStart(2, "0");
   var seconds = String(time.getSeconds()).padStart(2, "0");
 
   return (
-    <div className="time">
-      {hours}:{minutes}:{seconds}
-    </div>
+    <span className="time">
+      {minutes}:{seconds}
+    </span>
   );
 }
 
@@ -1449,15 +2271,6 @@ function SpeechInput(props) {
   const meetings = props.meetings;
   const selTab = props.selTab;
   const players = props.players;
-  /*
-  const options = props.options;
-  const agoraClient = props.agoraClient;
-  const localAudioTrack = props.localAudioTrack;
-  const muted = props.muted;
-  const setMuted = props.setMuted;
-  const deafened = props.deafened;
-  const setDeafened = props.setDeafened;
-  */
 
   const speechInput = props.speechInput;
   const setSpeechInput = props.setSpeechInput;
@@ -1501,7 +2314,7 @@ function SpeechInput(props) {
         });
       }
     }
-    if (props.setup.whispers) {
+    if (props.whispersEnabled) {
       newDropdownOptions.push("divider");
       newDropdownOptions.push({
         id: "forceLeak",
@@ -1592,17 +2405,14 @@ function SpeechInput(props) {
       );
       const matchedPlayers = [];
       for (const i in playerSeeds) {
-        // Checking seed string against characters in player names.
         if (playerSeeds[i] === seedString) {
           matchedPlayers.push(playerNames[i]);
         }
       }
       if (matchedPlayers.length) {
         if (matchedPlayers.length === 1) {
-          // If one matching player, autocomplete entire name.
           words.push(prefix + matchedPlayers[0]);
         } else {
-          // If multiple matching players, autocomplete until player names diverge.
           let i = 1;
           while (
             matchedPlayers.every(
@@ -1615,37 +2425,16 @@ function SpeechInput(props) {
         }
         setSpeechInput(words.join(" "));
       } else if (word.toLowerCase() === "@everyone".substring(0, word.length)) {
-        // Check for @everyone.
         words.push("@everyone");
         setSpeechInput(words.join(" "));
       }
     }
   }
 
-  /*
-  function onMute() {
-    if (localAudioTrack.current) {
-      var volume = muted ? 100 : 0;
-
-      localAudioTrack.current.setVolume(volume);
-      setMuted(!muted);
-    }
-  }
-  */
-
-  // function onDeafen() {
-  //   if (agoraClient.current) {
-  //     var volume = deafened ? 100 : 0;
-
-  //     agoraClient.current.remoteUsers.forEach((user) => {
-  //       user.audioTrack && user.audioTrack.setVolume(volume);
-  //     });
-
-  //     setDeafened(!deafened);
-  //   }
-  // }
   function onEmoteSelected(emote) {
-    setSpeechInput(speechInput ? `${speechInput.trimRight()} ${emote}` : emote);
+    setSpeechInput(
+      speechInput ? `${speechInput.trimRight()} ${emote} ` : `${emote} `
+    );
   }
 
   return (
@@ -1657,144 +2446,192 @@ function SpeechInput(props) {
           onChange={onSpeechDropdownChange}
           onCheckboxChange={onCheckboxChange}
           value={speechDropdownValue}
+          anchorOrigin={{ vertical: "top", horizontal: "left" }}
+          transformOrigin={{ vertical: "bottom", horizontal: "left" }}
         />
-        <input
+        <TextField
           id="speechInput"
           className="speech-input"
-          type="text"
-          autoComplete="off"
+          fullWidth
+          aria-autocomplete="none"
+          name="MafiaSpeech"
+          inputProps={{
+            inputMode: "text",
+            autoCorrect: "on",
+            autoCapitalize: "on",
+            autoComplete: "off",
+            maxLength: MaxGameMessageLength,
+          }}
           value={speechInput}
           placeholder={placeholder}
-          maxLength={MaxGameMessageLength}
           onChange={onSpeechType}
-          enterKeyHint="done"
           onKeyDown={onSpeechSubmit}
+          enterKeyHint="done"
+          sx={{
+            "& fieldset": { border: "none" },
+            input: { color: "var(--scheme-color-text)" },
+          }}
         />
         <EmotePicker
           className="speech-dropdown"
+          players={players}
           onEmoteSelected={onEmoteSelected}
         />
       </div>
-      {/*options.voiceChat && (
-        <>
-          <i
-            className={`fas fa-microphone ${muted ? "disabled" : ""}`}
-            onClick={onMute}
-          />
-          <i
-            className={`fas fa-headphones ${deafened ? "disabled" : ""}`}
-            onClick={onDeafen}
-          />
-        </>
-      )*/}
     </div>
   );
 }
 
-export function StateSwitcher(props) {
-  const history = props.history;
-  const stateViewing = props.stateViewing;
-  const stateName = history.states[stateViewing]
-    ? history.states[stateViewing].name
-    : "";
+export function SideMenu({
+  title,
+  lockIcon,
+  content,
+  scrollable,
+  expanded,
+  onChange,
+  isAccordionMenu = false,
+  defaultExpanded = false,
+  disabled = false,
+  contentPadding = "8px 16px",
+  flex = undefined,
+}) {
+  const handleToggle = () => {
+    if (!disabled && onChange) {
+      onChange();
+    }
+  };
 
-  const leftArrowVisible = props.stateViewing != -1;
-  const rigthArrowVisible =
-    props.stateViewing < history.currentState ||
-    (history.currentState == -2 && props.stateViewing != history.currentState);
-
-  function onStateNameClick() {
-    props.updateStateViewing({ type: "current" });
-  }
-
-  return (
-    <div className="state-nav">
-      <i
-        className={`hist-arrow fas fa-caret-left ${
-          leftArrowVisible ? "" : "invisible"
-        }`}
-        onClick={() => props.updateStateViewing({ type: "backward" })}
-      />
-      <div className="state-name" onClick={onStateNameClick}>
-        {stateName.toUpperCase()}
+  if (!isAccordionMenu) {
+    return (
+      <div
+        className={`side-menu ${scrollable ? "scrollable" : ""}`}
+        style={{ flex: flex }}
+      >
+        <Stack
+          direction="row"
+          spacing={1}
+          className="title-box"
+          sx={{
+            alignItems: "center",
+            p: 1,
+            bgcolor: "var(--scheme-color-background)",
+          }}
+        >
+          {lockIcon}
+          {title}
+        </Stack>
+        <div className="side-menu-content">{content}</div>
       </div>
-      <i
-        className={`hist-arrow fas fa-caret-right ${
-          rigthArrowVisible ? "" : "invisible"
-        }`}
-        onClick={() => props.updateStateViewing({ type: "forward" })}
-      />
-    </div>
-  );
-}
-
-export function formatTimerTime(time) {
-  if (time > 0) time = Math.round(time / 1000);
-  else time = 0;
-
-  const minutes = String(Math.floor(time / 60)).padStart(2, "0");
-  const seconds = String(time % 60).padStart(2, "0");
-
-  return `${minutes}:${seconds}`;
-}
-
-export function SideMenu(props) {
-  return (
-    <div className={`side-menu ${props.scrollable ? "scrollable" : ""}`}>
-      <div className="side-menu-title">
-        {props.lockIcon}&nbsp;{props.title}
-      </div>
-      <div className="side-menu-content">{props.content}</div>
-    </div>
-  );
-}
-
-function RoleMarkerToggle(props) {
-  const roleMarkerRef = useRef();
-  const popover = useContext(PopoverContext);
-  const game = useContext(GameContext);
-  const { toggleRolePrediction } = game;
-  const playerId = props.playerId;
-
-  function onRoleMarkerClick() {
-    if (props.onClick) props.onClick();
-
-    popover.onClick(
-      `/setup/${game.setup.id}`,
-      "rolePrediction",
-      roleMarkerRef.current,
-      "Mark Role as",
-      (data) => {
-        let roles = {};
-        for (let r of JSON.parse(data.roles)) {
-          Object.assign(roles, r);
-        }
-
-        data.roles = roles;
-        data.toggleRolePrediction = toggleRolePrediction(playerId);
-      }
     );
   }
 
   return (
-    <div
-      className="role-marker"
-      onClick={onRoleMarkerClick}
-      ref={roleMarkerRef}
+    <Accordion
+      className={`side-menu ${scrollable ? "scrollable" : ""}`}
+      defaultExpanded={defaultExpanded}
+      expanded={expanded}
+      disableGutters
+      onChange={handleToggle}
+      disabled={disabled}
+      sx={{
+        flex: flex,
+      }}
     >
-      <i className="fas fa-user-edit"></i>
-    </div>
+      <AccordionSummary
+        sx={{
+          backgroundColor: "var(--scheme-color-sec)",
+        }}
+      >
+        <Typography>
+          {lockIcon}&nbsp;{title}
+        </Typography>
+      </AccordionSummary>
+      <AccordionDetails
+        className="side-menu-content"
+        sx={{
+          padding: contentPadding, // Adjust padding inside the expanded section
+        }}
+      >
+        {content}
+      </AccordionDetails>
+    </Accordion>
   );
 }
 
-export function PlayerRows(props) {
+function RoleMarkerToggle({ playerId, setup, toggleRolePrediction }) {
+  const roleMarkerRef = useRef();
+
+  const { InfoPopover, popoverOpen, handleClick, closePopover } = usePopover({
+    path: `/api/setup/${setup.id}`,
+    type: "rolePrediction",
+    boundingEl: roleMarkerRef.current,
+    title: "Mark Role as",
+    postprocessData: (data) => {
+      let roles = {};
+      for (let r of JSON.parse(data.roles)) {
+        Object.assign(roles, r);
+      }
+
+      data.roles = roles;
+      data.makeRolePrediction = makeRolePrediction;
+    },
+  });
+
+  const makeRolePrediction = useCallback(
+    (prediction) => {
+      toggleRolePrediction(playerId, prediction);
+      closePopover();
+    },
+    [playerId]
+  );
+
+  return (
+    <>
+      {popoverOpen && <InfoPopover />}
+      <div
+        className="role-marker"
+        onClick={handleClick}
+        ref={roleMarkerRef}
+        style={{
+          cursor: "pointer",
+        }}
+      >
+        <i className="fas fa-user-edit"></i>
+      </div>
+    </>
+  );
+}
+
+export function PlayerRows({ players, className = "" }) {
   const game = useContext(GameContext);
-  const { isolationEnabled, togglePlayerIsolation, isolatedPlayers } = game;
-  const { rolePredictions } = game;
-  const history = props.history;
-  const players = props.players;
-  const activity = props.activity;
-  const stateViewingInfo = history.states[props.stateViewing];
+  const [activity, updateActivity] = useActivity();
+
+  useEffect(() => {
+    if (socket && socket.on) {
+      socket.on("typing", (info) => {
+        updateActivity({
+          type: "typing",
+          playerId: info.playerId,
+          meetingId: info.meetingId,
+        });
+      });
+    }
+  }, []);
+
+  const {
+    gameType,
+    socket,
+    history,
+    setup,
+    self,
+    stateViewing,
+    rolePredictions,
+    toggleRolePrediction,
+    isolationEnabled,
+    togglePlayerIsolation,
+    isolatedPlayers,
+  } = game;
+  const stateViewingInfo = history.states[stateViewing];
   const selTab = stateViewingInfo && stateViewingInfo.selTab;
 
   const isPlayerIsolated = (playerId) => isolatedPlayers.has(playerId);
@@ -1814,9 +2651,8 @@ export function PlayerRows(props) {
       : stateViewingInfo.roles[player.id];
 
     var showBubbles =
-      Object.keys(history.states[history.currentState].dead).includes(
-        props.self
-      ) || players.find((x) => x.id === props.self) !== undefined;
+      Object.keys(history.states[history.currentState].dead).includes(self) ||
+      players.find((x) => x.id === self) !== undefined;
     var colorAutoScheme = false;
     var bubbleColor = "black";
     if (document.documentElement.classList.length === 0) {
@@ -1845,18 +2681,22 @@ export function PlayerRows(props) {
     }
 
     return (
-      <div
-        className={`player ${props.className ? props.className : ""}`}
-        key={player.id}
-      >
+      <div className={`player ${className ? className : ""}`} key={player.id}>
         {isolationCheckbox}
-        {props.stateViewing != -1 && <RoleMarkerToggle playerId={player.id} />}
-        {props.stateViewing != -1 && (
+        {stateViewing !== -1 && (
+          <RoleMarkerToggle
+            playerId={player.id}
+            setup={setup}
+            toggleRolePrediction={toggleRolePrediction}
+          />
+        )}
+        {stateViewing !== -1 && (
           <RoleCount
             role={roleToShow}
-            isRolePrediction={rolePrediction !== undefined}
-            gameType={props.gameType}
+            key={roleToShow}
+            gameType={gameType}
             showPopover
+            otherRoles={setup?.roles}
           />
         )}
         <NameWithAvatar
@@ -1866,14 +2706,13 @@ export function PlayerRows(props) {
           avatar={player.avatar}
           color={player.nameColor}
           active={activity.speaking[player.id]}
-          noLink={props.stateViewing >= 0 && game.options.anonymousGame}
+          noLink={stateViewing >= 0 && game.options.anonymousGame}
+          includeMiniprofile
           newTab
         />
         {selTab && showBubbles && activity.typing[player.id] === selTab && (
           <ReactLoading
-            className={`typing-icon ${
-              props.stateViewing != -1 ? "has-role" : ""
-            }`}
+            className={`typing-icon ${stateViewing != -1 ? "has-role" : ""}`}
             type="bubbles"
             color={bubbleColor}
             width="20"
@@ -1888,52 +2727,134 @@ export function PlayerRows(props) {
 }
 
 export function PlayerList(props) {
-  const history = props.history;
-  const stateViewingInfo = history.states[props.stateViewing];
-  const alivePlayers = Object.values(props.players).filter(
+  const game = useContext(GameContext);
+
+  const history = game.history;
+  const stateViewingInfo = history.states[game.stateViewing];
+  const alivePlayers = Object.values(game.players).filter(
     (p) => !stateViewingInfo.dead[p.id] && !p.left
   );
-  const deadPlayers = Object.values(props.players).filter(
-    (p) => stateViewingInfo.dead[p.id] && !p.left
+  const deadPlayers = Object.values(game.players).filter(
+    (p) =>
+      stateViewingInfo.dead[p.id] &&
+      !p.left &&
+      !stateViewingInfo.exorcised[p.id]
+  );
+  const exorcisedPlayers = Object.values(game.players).filter(
+    (p) => stateViewingInfo.exorcised[p.id] && !p.left
+  );
+
+  const title = (
+    <Stack
+      direction="row"
+      spacing={1}
+      sx={{
+        width: "100%",
+        alignItems: "center",
+      }}
+    >
+      <Typography>Players</Typography>
+      <Box sx={{ marginLeft: "auto !important" }}>
+        <PlayerCount
+          game={game}
+          gameId={game.gameId}
+          anonymousGame={game.options.anonymousGame}
+          status={"In Progress"}
+          numSlotsTaken={
+            Object.values(game.players).filter((p) => !p.left).length
+          }
+          spectatingAllowed={game.options.spectating}
+          spectatorCount={game.spectatorCount}
+        />
+      </Box>
+    </Stack>
   );
 
   return (
     <SideMenu
-      title="Players"
+      title={title}
       scrollable
       content={
         <div className="player-list">
-          <PlayerRows
-            players={alivePlayers}
-            history={history}
-            self={props.self}
-            gameType={props.gameType}
-            stateViewing={props.stateViewing}
-            activity={props.activity}
-          />
+          <PlayerRows players={alivePlayers} />
           {deadPlayers.length > 0 && (
             <div className="section-title">
               <i className="fas fa-skull" />
               Graveyard
             </div>
           )}
-          <PlayerRows
-            players={deadPlayers}
-            history={history}
-            self={props.self}
-            gameType={props.gameType}
-            stateViewing={props.stateViewing}
-            activity={props.activity}
-            className="dead"
-          />
+          <PlayerRows players={deadPlayers} className="dead" />
+          {exorcisedPlayers.length > 0 && (
+            <div className="section-title">
+              <i className="fas fa-skull" />
+              Underworld
+            </div>
+          )}
+          <PlayerRows players={exorcisedPlayers} className="dead" />
         </div>
       }
     />
   );
 }
 
-export function ActionList(props) {
-  const actions = Object.values(props.meetings).reduce((actions, meeting) => {
+export function OptionsList() {
+  const game = useContext(GameContext);
+  const gameOptions = game.options.gameTypeOptions;
+
+  if (history.currentState !== -1) {
+    return <></>;
+  }
+
+  const formatOptionName = (optionName) => {
+    const words = optionName.split(/(?=[A-Z])/);
+    const formattedWords = words.map((word, index) => {
+      if (index === 0) {
+        return word.charAt(0).toUpperCase() + word.slice(1);
+      } else {
+        return ` ${word.charAt(0).toUpperCase() + word.slice(1)}`;
+      }
+    });
+    return formattedWords.join("");
+  };
+
+  const formatOptionValue = (optionValue) => {
+    if (typeof optionValue === "boolean") {
+      return optionValue ? "Enabled" : "Disabled";
+    }
+    return optionValue;
+  };
+
+  return (
+    <SideMenu
+      title="Options"
+      scrollable
+      content={
+        <table className="options-table">
+          <tbody>
+            {Object.entries(gameOptions).map(([optionName, optionValue]) => (
+              <tr key={optionName}>
+                <td className="option-name">{formatOptionName(optionName)}:</td>
+                <td className="option-value">
+                  {formatOptionValue(optionValue)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      }
+    />
+  );
+}
+
+export function ActionList({ title = "Actions", actionStyle = {} }) {
+  const game = useContext(GameContext);
+
+  const currentlyViewedState = game.history.states[game.stateViewing];
+  const meetings = currentlyViewedState ? currentlyViewedState.meetings : {};
+
+  const isParticipant = game.isParticipant;
+
+  const actions = Object.values(meetings).reduce((actions, meeting) => {
     if (meeting.voting) {
       var action;
 
@@ -1944,16 +2865,18 @@ export function ActionList(props) {
         case "alignment":
         case "custom":
         case "customBoolean":
+        case "AllRoles":
         case "select":
           action = (
             <ActionSelect
               key={meeting.id}
-              socket={props.socket}
+              socket={game.socket}
               meeting={meeting}
-              players={props.players}
-              self={props.self}
-              history={props.history}
-              stateViewing={props.stateViewing}
+              players={game.players}
+              self={game.self}
+              history={game.history}
+              stateViewing={game.stateViewing}
+              style={actionStyle}
             />
           );
           break;
@@ -1961,12 +2884,13 @@ export function ActionList(props) {
           action = (
             <ActionButton
               key={meeting.id}
-              socket={props.socket}
+              socket={game.socket}
               meeting={meeting}
-              players={props.players}
-              self={props.self}
-              history={props.history}
-              stateViewing={props.stateViewing}
+              players={game.players}
+              self={game.self}
+              history={game.history}
+              stateViewing={game.stateViewing}
+              style={actionStyle}
             />
           );
           break;
@@ -1974,12 +2898,69 @@ export function ActionList(props) {
           action = (
             <ActionText
               key={meeting.id}
-              socket={props.socket}
+              socket={game.socket}
               meeting={meeting}
-              players={props.players}
-              self={props.self}
-              history={props.history}
-              stateViewing={props.stateViewing}
+              players={game.players}
+              self={game.self}
+              history={game.history}
+              stateViewing={game.stateViewing}
+              style={actionStyle}
+            />
+          );
+          break;
+        case "imageButtons":
+          action = (
+            <ActionImageButtons
+              key={meeting.id}
+              socket={game.socket}
+              meeting={meeting}
+              players={game.players}
+              self={game.self}
+              history={game.history}
+              stateViewing={game.stateViewing}
+              style={actionStyle}
+            />
+          );
+          break;
+        case "playingCardButtons":
+          action = (
+            <PlayingCardButtons
+              key={meeting.id}
+              socket={game.socket}
+              meeting={meeting}
+              players={game.players}
+              self={game.self}
+              history={game.history}
+              stateViewing={game.stateViewing}
+              style={actionStyle}
+            />
+          );
+          break;
+        case "actionSeparatingText":
+          action = (
+            <ActionSeparatingText
+              key={meeting.id}
+              socket={game.socket}
+              meeting={meeting}
+              players={game.players}
+              self={game.self}
+              history={game.history}
+              stateViewing={game.stateViewing}
+              style={actionStyle}
+            />
+          );
+          break;
+        case "showAllOptions":
+          action = (
+            <ActionSelectShowAllOptions
+              key={meeting.id}
+              socket={game.socket}
+              meeting={meeting}
+              players={game.players}
+              self={game.self}
+              history={game.history}
+              stateViewing={game.stateViewing}
+              style={actionStyle}
             />
           );
           break;
@@ -1991,71 +2972,32 @@ export function ActionList(props) {
   }, []);
 
   return (
-    <>
-      {actions.length > 0 && (
-        <SideMenu
-          scrollable
-          title="Actions"
-          content={<div className="action-list">{actions}</div>}
-        />
-      )}
-    </>
+    <SideMenu
+      scrollable
+      title={
+        <UnresolvedActionCount>{title || "Actions"}</UnresolvedActionCount>
+      }
+      content={<div className="action-list">{actions}</div>}
+    />
   );
 }
 
 function ActionSelect(props) {
   const [meeting, history, stateViewing, isCurrentState, notClickable, onVote] =
     useAction(props);
-  const [menuVisible, setMenuVisible, dropdownContainerRef, dropdownMenuRef] =
-    useDropdown();
   const [selectVisible, setSelectVisible] = useState(true);
 
-  const targets = meeting.targets.map((target) => {
-    var targetDisplay = getTargetDisplay(target, meeting, props.players);
-
-    return (
-      <div
-        className="target dropdown-menu-option"
-        key={target}
-        onClick={() => onSelectVote(target)}
-      >
-        {targetDisplay}
-      </div>
-    );
-  });
-
-  const votes = Object.values(meeting.members).map((member) => {
-    var selection = meeting.votes[member.id];
-    var player = props.players[member.id];
-    selection = getTargetDisplay(selection, meeting, props.players);
-
-    if (!member.canVote && meeting.displayOptions.disableShowDoesNotVote) {
-      return <></>;
-    }
-
-    return (
-      <div className={`vote ${meeting.multi ? "multi" : ""}`} key={member.id}>
-        <div className="voter" onClick={() => onSelectVote(member.id)}>
-          {(player && player.name) || "Anonymous"}
-        </div>
-        {!member.canVote && <div className="selection">does not vote</div>}
-        {member.canVote && selection.length > 0 && (
-          <div className="italic">votes</div>
-        )}
-        {member.canVote && (
-          <div className="selection">{selection.join(", ")}</div>
-        )}
-      </div>
-    );
-  });
+  const targetOptions = randomizeMeetingTargetsWithSeed({
+    targets: meeting.targets,
+    seed: meeting.id,
+    playerIds: Object.values(props?.players).map((player) => player.id),
+  }).map((target) => ({
+    id: target,
+    label: getTargetDisplay(target, meeting, props.players),
+  }));
 
   function onSelectVote(sel) {
-    setMenuVisible(false);
     onVote(sel);
-  }
-
-  function onActionClick() {
-    if (!notClickable) setMenuVisible(!menuVisible);
   }
 
   useEffect(() => {
@@ -2064,60 +3006,497 @@ function ActionSelect(props) {
     }
   }, [notClickable]);
 
+  if (!selectVisible) return null;
+
+  // Client side vote counting logic
+  const shouldDisplayCounters = meeting.displayVoteCounter;
+  const noOneDisplayName = meeting.noOneDisplayName
+    ? meeting.noOneDisplayName
+    : NO_ONE_NAME;
+  const canVoteNoOne =
+    meeting.targets &&
+    Array.isArray(meeting.targets) &&
+    meeting.targets.includes("*");
+  const canVoteMagus =
+    meeting.targets &&
+    Array.isArray(meeting.targets) &&
+    meeting.targets.includes("*magus");
+  const voteCounts = new Map();
+  var highestVoteCount = 0;
+  var noOneHasMostVotes = false;
+
+  if (shouldDisplayCounters) {
+    // Tally the votes per player
+    for (const member of Object.values(meeting.members)) {
+      var selections = getTargetDisplay(
+        meeting.votes[member.id],
+        meeting,
+        props.players
+      );
+      for (let selection of selections) {
+        if (!voteCounts.has(selection)) {
+          voteCounts.set(selection, 0);
+        }
+        voteCounts.set(selection, voteCounts.get(selection) + 1);
+      }
+    }
+
+    // Determine the highest number of votes - these counters will appear red
+    for (const value of voteCounts.values()) {
+      if (value > highestVoteCount) {
+        highestVoteCount = value;
+      }
+    }
+
+    if (
+      voteCounts.has(noOneDisplayName) &&
+      voteCounts.get(noOneDisplayName) === highestVoteCount
+    ) {
+      noOneHasMostVotes = true;
+    }
+  }
+
+  const rowItems = Object.values(meeting.members).map((member) => {
+    const player = props.players[member.id];
+    const selection = getTargetDisplay(
+      meeting.votes[member.id],
+      meeting,
+      props.players
+    );
+    const name = player ? player.name : null;
+
+    return {
+      id: member.id,
+      name: name || "Anonymous",
+      canVote: member.canVote,
+      selection: selection,
+    };
+  });
+
+  // In a meeting where players are targets, a "special" target is anything that's not a player
+  // includes "Condemn No One", "Declare Magus Game"
+  var displayingSpecialTarget = false;
+
+  var displayingNoOneTarget = false;
+  var displayingMagusTarget = false;
+
+  // Also show how many people are voting noOneDisplayName if applicable
+  if (shouldDisplayCounters && canVoteNoOne) {
+    displayingSpecialTarget = true;
+    displayingNoOneTarget = true;
+  }
+
+  // Also show how many people are voting MAGUS_NAME if applicable
+  if (shouldDisplayCounters && canVoteMagus) {
+    displayingSpecialTarget = true;
+    displayingMagusTarget = true;
+  }
+
+  // Start displaying the special targets after the divider to keep them visually separate
+  if (displayingSpecialTarget) {
+    rowItems.push("divider");
+  }
+
+  if (displayingNoOneTarget) {
+    rowItems.push({
+      id: "*",
+      name: noOneDisplayName,
+      canVote: false,
+      selection: [],
+    });
+  }
+
+  if (displayingMagusTarget) {
+    rowItems.push({
+      id: "*magus",
+      name: MAGUS_NAME,
+      canVote: false,
+      selection: [],
+    });
+  }
+
   return (
-    <div className="action" style={selectVisible ? {} : { display: "none" }}>
-      <div
-        className={`action-name dropdown-control ${
-          notClickable ? "not-clickable" : ""
-        }`}
-        ref={dropdownContainerRef}
-        onClick={onActionClick}
-      >
+    <Box
+      className="action"
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-start",
+        gap: 2,
+        p: 2,
+        borderRadius: 2,
+        bgcolor: "background.paper",
+        boxShadow: 3,
+        ...props.style,
+      }}
+    >
+      <Box sx={{ display: "flex", justifyContent: "center", width: "100%" }}>
+        <Dropdown
+          className={`action-dropdown ${notClickable ? "not-clickable" : ""}`}
+          options={targetOptions}
+          value={null}
+          onChange={onSelectVote}
+          icon={
+            <>
+              <Typography>{meeting.actionName}</Typography>{" "}
+              <i className="fas fa-angle-down dropdown-arrow" />
+            </>
+          }
+          anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+          transformOrigin={{ vertical: "top", horizontal: "left" }}
+        />
+      </Box>
+
+      <Box className="votes" sx={{ width: "100%" }}>
+        {rowItems.map((rowItem) => {
+          if (rowItem === "divider") {
+            // if the row item is just the string "divider" then short circuit and render a divider
+            return (
+              <Divider
+                key={"divider"}
+                direction="horizontal"
+                sx={{
+                  marginBottom: 1,
+                }}
+              />
+            );
+          }
+
+          const rowIsNoOne = rowItem.name === noOneDisplayName;
+          const rowIsSpecial = rowItem.id.startsWith("*");
+
+          var voteCount = 0;
+          if (rowItem.name && voteCounts.has(rowItem.name)) {
+            voteCount = voteCounts.get(rowItem.name);
+          }
+          const hasHighestVoteCount =
+            voteCount != 0 &&
+            voteCount == highestVoteCount &&
+            (!noOneHasMostVotes || rowIsNoOne);
+
+          if (
+            !rowItem.canVote &&
+            meeting.displayOptions.disableShowDoesNotVote
+          ) {
+            return null;
+          }
+
+          var voteCountStyle = null;
+          if (hasHighestVoteCount) {
+            if (rowIsSpecial) {
+              voteCountStyle = { backgroundColor: "#487a28" };
+            } else {
+              voteCountStyle = { backgroundColor: "#bd4c4c" };
+            }
+          } else {
+            voteCountStyle = { backgroundColor: "#4c7dbd" };
+          }
+
+          var nameColorOverride = null;
+          if (rowIsSpecial) {
+            nameColorOverride = "grey";
+          }
+
+          return (
+            <Box
+              key={rowItem.id}
+              className={`vote ${meeting.multi ? "multi" : ""}`}
+              sx={{ display: "flex", flexDirection: "column", gap: 1 }}
+            >
+              {shouldDisplayCounters && (
+                <div className="vote-count" style={voteCountStyle}>
+                  {voteCount}
+                </div>
+              )}
+              <Typography
+                className="voter"
+                sx={{
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                  color: nameColorOverride ? nameColorOverride : undefined,
+                }}
+                onClick={() => onSelectVote(rowItem.id)}
+              >
+                {rowItem.name}
+              </Typography>
+              {!rowItem.canVote && !rowIsSpecial && (
+                <Typography className="selection">does not vote</Typography>
+              )}
+              {rowItem.canVote && rowItem.selection.length > 0 && (
+                <Typography>votes</Typography>
+              )}
+              {rowItem.canVote && (
+                <Typography className="selection">
+                  {rowItem.selection.join(", ")}
+                </Typography>
+              )}
+            </Box>
+          );
+        })}
+      </Box>
+    </Box>
+  );
+}
+
+function ActionSelectShowAllOptions(props) {
+  const [meeting, history, stateViewing, isCurrentState, notClickable, onVote] =
+    useAction(props);
+
+  const myVote = meeting.votes[props.self];
+  const myVoteDisplay = getTargetDisplay(myVote, meeting, props.players);
+
+  const targetOptions = meeting.targets.map((target) => ({
+    id: target,
+    label: getTargetDisplay(target, meeting, props.players)[0],
+  }));
+
+  function handleOptionClick(target) {
+    if (!notClickable) {
+      onVote(target);
+    }
+  }
+
+  return (
+    <Box
+      className="action"
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-start",
+        gap: 1,
+        p: 2,
+        borderRadius: 2,
+        bgcolor: "background.paper",
+        boxShadow: 3,
+        ...props.style,
+      }}
+    >
+      <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: "bold" }}>
         {meeting.actionName}
-        <i className="fas fa-angle-down dropdown-arrow" />
-      </div>
-      {menuVisible && (
-        <div className="targets dropdown-menu" ref={dropdownMenuRef}>
-          {targets}
-        </div>
-      )}
-      <div className="votes">{votes}</div>
-    </div>
+      </Typography>
+
+      <Box
+        sx={{
+          width: "100%",
+          display: "flex",
+          flexDirection: "column",
+          gap: 0.5,
+        }}
+      >
+        {targetOptions.map((option) => {
+          const isSelected = myVoteDisplay.includes(option.label);
+
+          return (
+            <Box
+              key={option.id}
+              onClick={() => handleOptionClick(option.id)}
+              sx={{
+                cursor: notClickable ? "default" : "pointer",
+                padding: "8px 12px",
+                borderRadius: 1,
+                backgroundColor: "background.default",
+                "&:hover": notClickable
+                  ? {}
+                  : {
+                      backgroundColor: "action.hover",
+                    },
+                transition: "background-color 0.2s",
+              }}
+            >
+              <Typography
+                sx={{
+                  fontWeight: isSelected ? "bold" : "normal",
+                  color: isSelected ? "primary.main" : "text.primary",
+                }}
+              >
+                {option.label}
+              </Typography>
+            </Box>
+          );
+        })}
+      </Box>
+    </Box>
   );
 }
 
 function ActionButton(props) {
   const [meeting, history, stateViewing, isCurrentState, notClickable, onVote] =
     useAction(props);
+
+  if (notClickable) return null;
+
+  const votes = { ...(meeting.votes || {}) };
+  for (let playerId in votes) {
+    votes[playerId] = getTargetDisplay(votes[playerId], meeting, props.players);
+  }
+
+  const myVoteDisplay = votes[props.self];
+
+  return (
+    <Box className="action" sx={{ ...props.style }}>
+      <Typography variant="subtitle1" sx={{ mb: 1 }}>
+        {meeting.actionName}
+      </Typography>
+
+      <Stack direction="row" spacing={1} flexWrap="wrap">
+        {(meeting.targets || []).map((target) => {
+          const targetDisplay = getTargetDisplay(
+            target,
+            meeting,
+            props.players
+          );
+
+          const isSelected = myVoteDisplay === targetDisplay;
+          const disabled = !!myVoteDisplay && !meeting.canUnvote;
+
+          return (
+            <Button
+              key={target}
+              color="primary"
+              disabled={disabled}
+              onClick={() => onVote(target)}
+              size="small"
+              sx={{ textTransform: "none" }}
+              aria-pressed={isSelected}
+            >
+              {targetDisplay}
+            </Button>
+          );
+        })}
+      </Stack>
+    </Box>
+  );
+}
+
+function ActionImageButtons(props) {
+  const [meeting, history, stateViewing, isCurrentState, notClickable, onVote] =
+    useAction(props);
+  const [selectedTarget, setSelectedTarget] = useState(null);
+
   if (notClickable) {
     return null;
   }
-  const votes = { ...meeting.votes };
 
+  const votes = { ...meeting.votes };
   for (let playerId in votes)
     votes[playerId] = getTargetDisplay(votes[playerId], meeting, props.players);
 
+  const selectedStyle = {
+    border: "2px solid #999",
+    backgroundColor: "#f0f0f0",
+    boxSizing: "border-box",
+  };
+
+  const unselectedStyle = {
+    border: "2px solid transparent",
+    boxSizing: "border-box",
+  };
+
+  const imgContainerStyle = {
+    width: "30px",
+    height: "30px",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
+  };
+
+  const handleClick = (target) => {
+    setSelectedTarget(target);
+    onVote(target);
+  };
+
   const buttons = meeting.targets.map((target) => {
     var targetDisplay = getTargetDisplay(target, meeting, props.players);
-
+    const isSelected = selectedTarget === target;
     return (
       <div
-        className={`btn btn-theme ${
-          votes[props.self] === targetDisplay ? "sel" : ""
-        }`}
+        className="btn btn-theme"
         key={target}
-        disabled={votes[props.self] && !meeting.canUnvote}
-        onClick={() => onVote(target)}
+        onClick={() => handleClick(target)}
+        style={isSelected ? selectedStyle : unselectedStyle}
       >
-        {targetDisplay}
+        <div style={imgContainerStyle}>
+          <img
+            src={emoteMap[targetDisplay]}
+            alt={targetDisplay}
+            className="action-icon"
+          />
+        </div>
       </div>
     );
   });
 
   return (
-    <div className="action">
+    <div className="action" style={{ ...props.style }}>
       <div className="action-name">{meeting.actionName}</div>
-      {buttons}
+      <div style={{ display: "flex", flexWrap: "wrap" }}>{buttons}</div>
+    </div>
+  );
+}
+
+function PlayingCardButtons(props) {
+  const [meeting, history, stateViewing, isCurrentState, notClickable, onVote] =
+    useAction(props);
+  const [selectedTarget, setSelectedTarget] = useState(null);
+
+  if (notClickable) {
+    return null;
+  }
+
+  const votes = { ...meeting.votes };
+  for (let playerId in votes)
+    votes[playerId] = getTargetDisplay(votes[playerId], meeting, props.players);
+
+  const selectedStyle = {
+    border: "2px solid #999",
+    backgroundColor: "#f0f0f0",
+    boxSizing: "border-box",
+  };
+
+  const unselectedStyle = {
+    border: "2px solid transparent",
+    boxSizing: "border-box",
+  };
+
+  const imgContainerStyle = {
+    width: "43px",
+    height: "59px",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
+  };
+
+  const handleClick = (target) => {
+    setSelectedTarget(target);
+    onVote(target);
+  };
+  //|| (selectedTarget && selectedTarget.includes(target))
+  const buttons = meeting.targets.map((target) => {
+    var targetDisplay = getTargetDisplay(target, meeting, props.players);
+    const isSelected =
+      votes[meeting.members[0].id] === target ||
+      (votes[meeting.members[0].id] &&
+        votes[meeting.members[0].id].includes(target));
+    return (
+      <div
+        className="btn btn-theme"
+        key={target}
+        onClick={() => handleClick(target)}
+        style={isSelected ? selectedStyle : unselectedStyle}
+      >
+        <div style={imgContainerStyle}>
+          <div className={`card ${`c${targetDisplay}`}`}></div>
+        </div>
+      </div>
+    );
+  });
+
+  return (
+    <div className="action" style={{ ...props.style }}>
+      <div className="action-name">{meeting.actionName}</div>
+      <div style={{ display: "flex", flexWrap: "wrap" }}>{buttons}</div>
     </div>
   );
 }
@@ -2130,6 +3509,10 @@ function ActionText(props) {
 
   // text settings
   const textOptions = meeting.textOptions || {};
+
+  const minNumber = textOptions.minNumber;
+  const maxNumber = textOptions.maxNumber;
+
   const minLength = textOptions.minLength || 0;
   const maxLength = textOptions.maxLength || MaxTextInputLength;
 
@@ -2139,6 +3522,23 @@ function ActionText(props) {
     var textInput = e.target.value;
     // disable new lines by default
     textInput = textInput.replace(/\n/g, " ");
+
+    if (textOptions.numericOnly) {
+      textInput = textInput.replace(/[^0-9]/g, "");
+      if (textInput !== "" && textInput !== "0") {
+        textInput = parseInt(textInput).toString();
+      }
+    }
+
+    if (textOptions.minNumber) {
+      if (textInput !== "") {
+        textInput = Math.max(minNumber, parseInt(textInput)).toString();
+      }
+    }
+
+    if (textOptions.maxNumber) {
+      textInput = Math.min(maxNumber, parseInt(textInput)).toString();
+    }
 
     if (textOptions.alphaOnly) {
       textInput = textInput.replace(/[^a-z]/gi, "");
@@ -2191,12 +3591,6 @@ function ActionText(props) {
       return;
     }
 
-    // validate if it's a real english word
-    // if (textOptions.validEnglishWord &&  )
-
-    // validate if it's unique only
-    // if (textOptions.uniqueOnly)
-
     meeting.votes[self] = textData;
     props.socket.send("vote", {
       meetingId: meeting.id,
@@ -2204,16 +3598,57 @@ function ActionText(props) {
     });
   }
 
+  function handleKeyDown(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleOnSubmit();
+    }
+  }
+
   return (
-    <div className="action">
-      <div className="action-name">{meeting.actionName}</div>
-      {!disabled && <textarea value={textData} onChange={handleOnChange} />}
+    <Box className="action">
+      <Typography variant="subtitle1" gutterBottom>
+        {meeting.actionName}
+      </Typography>
+
       {!disabled && (
-        <div className="btn btn-theme" onClick={handleOnSubmit}>
-          {textOptions.submit || "Submit"}
-        </div>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <TextField
+            value={textData}
+            onChange={handleOnChange}
+            onKeyDown={handleKeyDown}
+            size="small"
+            fullWidth
+            placeholder={textOptions.placeholder || "Type here"}
+          />
+          <Button
+            variant="contained"
+            onClick={handleOnSubmit}
+            disabled={textData.length < minLength}
+          >
+            {textOptions.submit || "Submit"}
+          </Button>
+        </Stack>
       )}
-      {meeting.votes[self]}
+
+      {meeting.votes[self] && (
+        <Typography variant="body2" sx={{ mt: 1 }}>
+          Your vote: {meeting.votes[self]}
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
+function ActionSeparatingText(props) {
+  const meeting = props.meeting;
+  const text = meeting.actionName;
+
+  return (
+    <div className="action" style={{ ...props.style }}>
+      <br />
+      <div className="action-name">{text}</div>
+      <br />
     </div>
   );
 }
@@ -2228,7 +3663,8 @@ function useAction(props) {
     !isCurrentState ||
     !meeting.amMember ||
     !meeting.canVote ||
-    ((meeting.instant || meeting.noUnvote) && meeting.votes[props.self]);
+    (((meeting.instant && !meeting.instantButChangeable) || meeting.noUnvote) &&
+      meeting.votes[props.self]);
 
   function onVote(sel) {
     var isUnvote;
@@ -2258,18 +3694,24 @@ function getTargetDisplay(targets, meeting, players) {
   else if (!targets) targets = [];
   else targets = [...targets];
 
+  const noOneDisplayName = meeting.noOneDisplayName
+    ? meeting.noOneDisplayName
+    : NO_ONE_NAME;
+
   for (let i in targets) {
     let target = targets[i];
 
     switch (meeting.inputType) {
       case "player":
-        if (target === "*") target = "no one";
+        if (target === "*") target = noOneDisplayName;
+        else if (target === "*magus") target = MAGUS_NAME;
         else if (target) target = players[target].name;
         else target = "";
         break;
       case "boolean":
         if (target === "*") target = "No";
         else if (!target) target = "";
+        break;
       default:
         if (target === "*") target = "None";
         else if (!target) target = "";
@@ -2281,56 +3723,37 @@ function getTargetDisplay(targets, meeting, players) {
   return targets;
 }
 
-export function Timer(props) {
-  var timerName;
+export function LastWillEntry() {
+  const game = useContext(GameContext);
 
-  if (props.history.currentState == -1) timerName = "pregameCountdown";
-  else if (props.history.currentState == -2) timerName = "postgame";
-  else if (props.timers["secondary"]) timerName = "secondary";
-  else if (props.timers["vegKick"]) timerName = "vegKick";
-  else if (props.timers["vegKickCountdown"]) timerName = "vegKickCountdown";
-  else timerName = "main";
+  const [lastWill, setLastWill] = useState(game.lastWill);
 
-  const timer = props.timers[timerName];
+  const currentState = game.history.states[game.history.currentState];
+  const cannotModifyLastWill =
+    !currentState || currentState.name.startsWith("Day");
 
-  if (!timer) return <div className="state-timer"></div>;
-
-  var time = timer.delay - timer.time;
-
-  if (props.timers["secondary"]) {
-    // show main timer if needed
-    const mainTimer = props.timers["main"];
-    if (mainTimer) {
-      var mainTime = mainTimer.delay - mainTimer.time;
-      time = Math.min(time, mainTime);
-    }
+  if (
+    !game.isParticipant ||
+    game.history.currentState < 0 ||
+    !game.getSetupGameSetting("Last Wills")
+  ) {
+    return <></>;
   }
-
-  time = formatTimerTime(time);
-
-  if (timerName === "vegKick") {
-    return <div className="state-timer">Kicking in {time}</div>;
-  }
-  return <div className="state-timer">{time}</div>;
-}
-
-export function LastWillEntry(props) {
-  const [lastWill, setLastWill] = useState(props.lastWill);
-  const cannotModifyLastWill = props.cannotModifyLastWill;
 
   function onWillChange(e) {
     var newWill = e.target.value.slice(0, MaxWillLength);
     setLastWill(newWill);
-    props.socket.send("lastWill", newWill);
+    game.socket.send("lastWill", newWill);
   }
 
   return (
     <SideMenu
       title="Last Will"
+      isAccordionMenu
       lockIcon={
         <i
           className={`fas ${
-            props.cannotModifyLastWill ? "fa-lock" : "fa-lock-open"
+            cannotModifyLastWill ? "fa-lock" : "fa-lock-open"
           } fa-fw`}
         />
       }
@@ -2348,11 +3771,10 @@ export function LastWillEntry(props) {
   );
 }
 
-function SettingsModal(props) {
-  const settings = props.settings;
-  const updateSettings = props.updateSettings;
-  const showModal = props.showModal;
-  const setShowModal = props.setShowModal;
+function SettingsForm({ handleClose = null }) {
+  const game = useContext(GameContext);
+  const { settings, updateSettings } = game;
+
   const [formFields, updateFormFields] = useForm([
     {
       label: "Voting Log",
@@ -2388,60 +3810,116 @@ function SettingsModal(props) {
       value: settings.volume,
     },
     {
-      label: `Display Terminology Emoticons`,
+      label: "Display Terminology Emoticons",
       ref: "terminologyEmoticons",
       type: "boolean",
       value: settings.terminologyEmoticons,
     },
+    {
+      label: "Highlight role names",
+      ref: "roleMentions",
+      type: "boolean",
+      value: settings.roleMentions,
+    },
+    {
+      label: "Message Layout",
+      ref: "messageLayout",
+      type: "select",
+      options: [
+        {
+          label: "Default",
+          value: "default",
+        },
+        {
+          label: "Default (large nameplate)",
+          value: "defaultLarge",
+        },
+        {
+          label: "Compact (inline)",
+          value: "compactInline",
+        },
+        {
+          label: "Compact (vertically aligned)",
+          value: "compactAligned",
+        },
+      ],
+      value: settings.messageLayout,
+    },
   ]);
 
-  const modalHeader = "Settings";
-
-  const modalContent = <Form fields={formFields} onChange={updateFormFields} />;
-
-  const modalFooter = (
-    <div className="settings-control">
-      <div className="settings-save btn btn-theme" onClick={saveSettings}>
-        Save
-      </div>
-      <div className="settings-cancel btn btn-theme-third" onClick={cancel}>
-        Cancel
-      </div>
-    </div>
-  );
   function cancel() {
-    for (let field of formFields) {
+    formFields.forEach((field) => {
       updateFormFields({
         ref: field.ref,
         prop: "value",
         value: settings[field.ref],
       });
-    }
+    });
 
-    setShowModal(false);
+    if (handleClose) {
+      handleClose();
+    }
   }
 
   function saveSettings() {
-    var newSettings = {};
-
-    for (let field of formFields) newSettings[field.ref] = field.value;
+    const newSettings = {};
+    formFields.forEach((field) => {
+      newSettings[field.ref] = field.value;
+    });
 
     updateSettings({
       type: "set",
       settings: newSettings,
     });
 
-    setShowModal(false);
+    if (handleClose) {
+      handleClose();
+    }
   }
 
+  const menuContent = <Form fields={formFields} onChange={updateFormFields} />;
+
+  const menuFooter = (
+    <div className="settings-control">
+      <ButtonGroup variant="contained">
+        <Button color="primary" onClick={saveSettings}>
+          Save
+        </Button>
+        {handleClose && (
+          <Button color="secondary" onClick={cancel}>
+            Cancel
+          </Button>
+        )}
+      </ButtonGroup>
+    </div>
+  );
+
   return (
-    <Modal
-      className="settings"
-      show={showModal}
-      header={modalHeader}
-      content={modalContent}
-      footer={modalFooter}
-      onBgClick={cancel}
+    <>
+      {menuContent}
+      {menuFooter}
+    </>
+  );
+}
+
+export function SettingsMenu() {
+  const [expanded, setExpanded] = useState(false);
+
+  const handleClose = () => {
+    setExpanded(false);
+  };
+
+  const handleToggle = () => {
+    setExpanded((prev) => !prev);
+  };
+
+  return (
+    <SideMenu
+      title="Settings"
+      isAccordionMenu
+      content={<SettingsForm handleClose={handleClose} />}
+      expanded={expanded}
+      onChange={handleToggle}
     />
   );
 }
@@ -2450,45 +3928,90 @@ function FirstGameModal(props) {
   const showModal = props.showModal;
   const setShowModal = props.setShowModal;
 
-  const modalHeader = "Welcome to UltiMafia";
+  const modalHeader = "Welcome to UltiMafia!";
 
   const modalContent = (
     <>
       <div className="paragraph">
-        To keep games fun and competitive for all, please don't:
+        We hope you enjoy your first game! Here's a few helpful resources for
+        navigating the site:
       </div>
 
       <div className="paragraph">
         <div>
-          - Communicate with other players using anything which isn't part of
-          the game.
+          - You can learn roles, items, mechanics, and slang{" "}
+          <a href="/learn" target="_blank">
+            here
+          </a>
+          !
         </div>
         <div>
-          - Form alliances or other out-of-game arrangements with other users.
+          - You can familiarize yourself with the site rules{" "}
+          <a href="/rules" target="_blank">
+            here
+          </a>
+          .
         </div>
-        <div>- Attempt to play a game using more than one account.</div>
-        <div>- Send screenshots or "prove" anything with images or video.</div>
-        <div>- Copy exactly any system messages you recieve (blue text).</div>
-        <div>- Try to lose the game on purpose.</div>
-        <div>- Give up or leave partway through the game.</div>
         <div>
-          - Issue out-of-game bribes or threats to sway other players, including
-          threatening to leave.
+          - Embedded{" "}
+          <a
+            href="https://discord.gg/C5WMFpYRHQ"
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+          >
+            here
+          </a>{" "}
+          is a link to the site's Discord server.
+        </div>
+        <div>
+          - Want to learn how to be a better player? Sign up to be a mentee{" "}
+          <a
+            href="/community/forums/thread/iU8EPBj9Z?reply=cpSlmcz-q"
+            target="_blank"
+          >
+            here
+          </a>
+          !
+        </div>
+        <div>
+          - If you have suggestions, feedback, or notice any bugs, you can make
+          a thread{" "}
+          <a href="/community/forums/board/SiJGWYr6O" target="_blank">
+            here
+          </a>
+          .
+        </div>
+        <div>
+          - Our website is open-source! You can contribute code on our{" "}
+          <a href="/community/forums/board/SiJGWYr6O" target="_blank">
+            GitHub repository
+          </a>
+          .
+        </div>
+        <div>
+          - Want to help us keep the lights on? You can support us on{" "}
+          <a
+            href="https://www.patreon.com/"
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+          >
+            Patreon
+          </a>{" "}
+          and{" "}
+          <a
+            href="https://ko-fi.com/ultimafia"
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+          >
+            Ko-fi
+          </a>
+          .
         </div>
       </div>
 
       <div className="paragraph">
-        Breaking game conduct may result in necessary action being taken against
-        your account.
-      </div>
-      <div className="paragraph">
-        A full description of these rules as well as site and community rules is
-        found <a href="/community/forums/board/-2z5mOHaYp">here</a>.
-      </div>
-      <div className="paragraph">
-        You can also find tutorials, tips, and strategy guides{" "}
-        <a href="/community/forums/board/ht4TEuL6lG">here</a>. Good luck, and
-        have fun!
+        Thanks for playing on the Ultimate Mafia Gaming Experience! Go hogwild,
+        my friend 🐗
       </div>
     </>
   );
@@ -2515,10 +4038,15 @@ function FirstGameModal(props) {
   );
 }
 
-export function SpeechFilter(props) {
+export function SpeechFilter() {
   const game = useContext(GameContext);
-  const { isolationEnabled, setIsolationEnabled } = game;
-  const { filters, setFilters, stateViewing } = props;
+  const {
+    isolationEnabled,
+    setIsolationEnabled,
+    speechFilters: filters,
+    setSpeechFilters: setFilters,
+    stateViewing,
+  } = game;
 
   const toggleIsolationEnabled = () => setIsolationEnabled(!isolationEnabled);
 
@@ -2537,6 +4065,7 @@ export function SpeechFilter(props) {
   return (
     <SideMenu
       title="Speech Filters"
+      isAccordionMenu
       content={
         <div className="speech-filters">
           <div style={{ marginBottom: "10px" }}>
@@ -2567,8 +4096,64 @@ export function SpeechFilter(props) {
   );
 }
 
-export function Notes(props) {
-  const stateViewing = props.stateViewing;
+export function PinnedMessages() {
+  const game = useContext(GameContext);
+
+  if (game.stateViewing < 0) return <></>;
+
+  function sortMessagesByTimestamp(a, b) {
+    if (a.time < b.time) {
+      return -1;
+    }
+    if (a.time > b.time) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+
+  const sortedPinnedMessages = Object.values(game.pinnedMessages).sort(
+    sortMessagesByTimestamp
+  );
+
+  const pinnedMessages = sortedPinnedMessages.map((message, i) => {
+    return (
+      <Message
+        message={message}
+        review={game.review}
+        history={game.history}
+        players={game.players}
+        stateViewing={game.stateViewing}
+        key={message.id || message.messageId + message.time || i}
+        onMessageQuote={game.onMessageQuote}
+        onPinMessage={game.onPinMessage}
+        isMessagePinned={game.isMessagePinned}
+        settings={game.settings}
+        forceDefaultStyling
+      />
+    );
+  });
+
+  return (
+    <SideMenu
+      title="Pinned messages"
+      isAccordionMenu
+      contentPadding="0px 0px"
+      content={
+        <div
+          className="speech-display"
+          style={{ minHeight: "40px", maxHeight: "240px" }}
+        >
+          {pinnedMessages}
+        </div>
+      }
+    />
+  );
+}
+
+export function Notes() {
+  const game = useContext(GameContext);
+  const stateViewing = game.stateViewing;
   const [notes, setNotes] = useState("");
   const { gameId } = useParams();
 
@@ -2597,6 +4182,7 @@ export function Notes(props) {
   return (
     <SideMenu
       title="Notes"
+      isAccordionMenu
       content={
         <div className="notes-wrapper">
           <textarea
@@ -2613,17 +4199,20 @@ export function Notes(props) {
 function useHistoryReducer() {
   return useReducer(
     (history, action) => {
-      var newHistory;
-
       switch (action.type) {
-        case "set":
-          var stateIds = Object.keys(action.history).sort((a, b) => a - b);
-          newHistory = { states: action.history };
+        case "set": {
+          var stateIds = Object.keys(action.history)
+            .map((a) => parseInt(a))
+            .sort((a, b) => a - b);
+          const newHistory = { states: action.history, pausedActions: [] };
 
           if (stateIds[0] == -2) newHistory.currentState = -2;
           else newHistory.currentState = stateIds[stateIds.length - 1];
+
+          return newHistory;
           break;
-        case "addState":
+        }
+        case "addState": {
           if (!history.states[action.state.id]) {
             var prevState;
 
@@ -2631,7 +4220,7 @@ function useHistoryReducer() {
             else
               prevState = Object.keys(history.states).sort((a, b) => b - a)[0];
 
-            newHistory = update(history, {
+            return update(history, {
               states: {
                 [action.state.id]: {
                   $set: {
@@ -2639,35 +4228,27 @@ function useHistoryReducer() {
                     meetings: {},
                     alerts: [],
                     stateEvents: [],
+                    obituaries: {},
+                    // winners: action.state.winners ? action.state.winners : null,
                     roles: { ...history.states[prevState].roles },
                     dead: { ...history.states[prevState].dead },
+                    exorcised: { ...history.states[prevState].exorcised },
                     extraInfo: { ...action.state.extraInfo },
                   },
                 },
               },
               currentState: {
-                $set: action.state.id,
+                $set: Number.parseInt(action.state.id),
               },
             });
-          } else newHistory = history;
+          }
           break;
-        case "addMeeting":
-          var state = history.states[history.currentState];
+        }
+        case "addMeeting": {
+          let state = history.states[history.currentState];
 
           if (state) {
-            if (!state.meetings) {
-              newHistory = update(history, {
-                states: {
-                  [history.currentState]: {
-                    meetings: {
-                      $set: {},
-                    },
-                  },
-                },
-              });
-            }
-
-            newHistory = update(newHistory || history, {
+            return update(history, {
               states: {
                 [history.currentState]: {
                   meetings: {
@@ -2680,12 +4261,13 @@ function useHistoryReducer() {
             });
           }
           break;
-        case "meetingMembers":
+        }
+        case "meetingMembers": {
           if (
             history.states[history.currentState] &&
             history.states[history.currentState].meetings[action.meetingId]
           ) {
-            newHistory = update(history, {
+            return update(history, {
               states: {
                 [history.currentState]: {
                   meetings: {
@@ -2700,9 +4282,10 @@ function useHistoryReducer() {
             });
           }
           break;
-        case "removeMeeting":
+        }
+        case "removeMeeting": {
           if (history.states[history.currentState]) {
-            newHistory = update(history, {
+            const update1 = update(history, {
               states: {
                 [history.currentState]: {
                   meetings: {
@@ -2713,20 +4296,22 @@ function useHistoryReducer() {
             });
 
             if (
-              newHistory.states[history.currentState].selTab ===
-              action.meetingId
+              update1.states[history.currentState].selTab === action.meetingId
             ) {
-              newHistory = update(newHistory, {
+              return update(update1, {
                 states: {
                   [history.currentState]: {
                     $unset: ["selTab"],
                   },
                 },
               });
+            } else {
+              return update1;
             }
           }
           break;
-        case "addMessage":
+        }
+        case "addMessage": {
           if (history.states[history.currentState]) {
             if (action.message.meetingId) {
               if (
@@ -2734,7 +4319,7 @@ function useHistoryReducer() {
                   action.message.meetingId
                 ]
               ) {
-                newHistory = update(history, {
+                return update(history, {
                   states: {
                     [history.currentState]: {
                       meetings: {
@@ -2749,7 +4334,7 @@ function useHistoryReducer() {
                 });
               }
             } else {
-              newHistory = update(history, {
+              return update(history, {
                 states: {
                   [history.currentState]: {
                     alerts: {
@@ -2761,14 +4346,15 @@ function useHistoryReducer() {
             }
           }
           break;
-        case "addQuote":
+        }
+        case "addQuote": {
           if (
             history.states[history.currentState] &&
             history.states[history.currentState].meetings[
               action.quote.toMeetingId
             ]
           ) {
-            newHistory = update(history, {
+            return update(history, {
               states: {
                 [history.currentState]: {
                   meetings: {
@@ -2783,16 +4369,17 @@ function useHistoryReducer() {
             });
           }
           break;
-        case "vote":
-          var target = action.vote.target;
-          var state = history.states[history.currentState];
-          var meeting = state && state.meetings[action.vote.meetingId];
+        }
+        case "vote": {
+          let target = action.vote.target;
+          const state = history.states[history.currentState];
+          const meeting = state && state.meetings[action.vote.meetingId];
 
           if (meeting) {
             if (meeting.multi)
               target = [...(meeting.votes[action.vote.voterId] || []), target];
 
-            newHistory = update(history, {
+            const update1 = update(history, {
               states: {
                 [history.currentState]: {
                   meetings: {
@@ -2809,7 +4396,7 @@ function useHistoryReducer() {
             });
 
             if (!action.vote.noLog) {
-              newHistory = update(newHistory, {
+              return update(update1, {
                 states: {
                   [history.currentState]: {
                     meetings: {
@@ -2829,13 +4416,16 @@ function useHistoryReducer() {
                   },
                 },
               });
+            } else {
+              return update1;
             }
           }
           break;
-        case "unvote":
-          var target = undefined;
-          var state = history.states[history.currentState];
-          var meeting = state && state.meetings[action.info.meetingId];
+        }
+        case "unvote": {
+          let target = undefined;
+          const state = history.states[history.currentState];
+          const meeting = state && state.meetings[action.info.meetingId];
 
           if (meeting) {
             if (meeting.multi)
@@ -2843,7 +4433,7 @@ function useHistoryReducer() {
                 (t) => t !== action.info.target
               );
 
-            newHistory = update(history, {
+            return update(history, {
               states: {
                 [history.currentState]: {
                   meetings: {
@@ -2869,9 +4459,10 @@ function useHistoryReducer() {
             });
           }
           break;
-        case "stateEvents":
+        }
+        case "stateEvents": {
           if (history.states[history.currentState]) {
-            newHistory = update(history, {
+            return update(history, {
               states: {
                 [history.currentState]: {
                   stateEvents: {
@@ -2882,9 +4473,10 @@ function useHistoryReducer() {
             });
           }
           break;
-        case "selTab":
+        }
+        case "selTab": {
           if (history.states[action.state]) {
-            newHistory = update(history, {
+            return update(history, {
               states: {
                 [action.state]: {
                   selTab: {
@@ -2895,9 +4487,41 @@ function useHistoryReducer() {
             });
           }
           break;
-        case "reveal":
+        }
+        case "obituaries": {
           if (history.states[history.currentState]) {
-            newHistory = update(history, {
+            return update(history, {
+              states: {
+                [history.currentState]: {
+                  obituaries: {
+                    [action.obituariesMessage.source]: {
+                      $set: action.obituariesMessage,
+                    },
+                  },
+                },
+              },
+            });
+          }
+          break;
+        }
+        // case "winners":
+        //   if (history.states[history.currentState]) {
+        //     return update(history, {
+        //       states: {
+        //         [history.currentState]: {
+        //           winners: {
+        //             [action.winnersMessage.source]: {
+        //               $set: action.winnersMessage,
+        //             },
+        //           },
+        //         },
+        //       },
+        //     });
+        //   }
+        //   break;
+        case "reveal": {
+          if (history.states[history.currentState]) {
+            return update(history, {
               states: {
                 [history.currentState]: {
                   roles: {
@@ -2910,9 +4534,10 @@ function useHistoryReducer() {
             });
           }
           break;
-        case "death":
+        }
+        case "death": {
           if (history.states[history.currentState]) {
-            newHistory = update(history, {
+            return update(history, {
               states: {
                 [history.currentState]: {
                   dead: {
@@ -2925,9 +4550,10 @@ function useHistoryReducer() {
             });
           }
           break;
-        case "revival":
+        }
+        case "revival": {
           if (history.states[history.currentState]) {
-            newHistory = update(history, {
+            return update(history, {
               states: {
                 [history.currentState]: {
                   dead: {
@@ -2940,11 +4566,15 @@ function useHistoryReducer() {
             });
           }
           break;
+        }
+        default: {
+          throw Error(`Unknown action type: ${action.type}`);
+        }
       }
 
-      return newHistory || history;
+      return history;
     },
-    { states: {} }
+    { states: {}, pausedActions: [] }
   );
 }
 
@@ -2967,50 +4597,16 @@ export function useStateViewingReducer(history) {
       case "first":
         newState = -1;
         break;
+      case "set":
+        newState = action.stateNum;
+        break;
       default:
-        newState = state;
+        throw Error(`Unknown action type ${action.type}`);
     }
 
     if (history.states[newState]) return newState;
     else return state;
   }, history.currentState);
-}
-
-export function useTimersReducer() {
-  return useReducer((timers, action) => {
-    var newTimers = { ...timers };
-
-    switch (action.type) {
-      case "create":
-        newTimers[action.timer.name] = {
-          delay: action.timer.delay,
-          time: 0,
-        };
-        break;
-      case "clear":
-        delete newTimers[action.name];
-        break;
-      case "update":
-        newTimers[action.name].time = action.time;
-        break;
-      case "updateAll":
-        for (var timerName in newTimers) newTimers[timerName].time += 1000;
-
-        const timer =
-          newTimers["pregameCountdown"] ||
-          newTimers["secondary"] ||
-          newTimers["main"];
-
-        if (!timer) break;
-
-        const intTime = Math.round((timer.delay - timer.time) / 1000);
-
-        if (intTime < 16 && intTime > 0) action.playAudio("tick");
-        break;
-    }
-
-    return newTimers;
-  }, {});
 }
 
 export function usePlayersReducer() {
@@ -3068,6 +4664,8 @@ export function useSettingsReducer() {
     music: true,
     volume: 1,
     terminologyEmoticons: true,
+    roleMentions: true,
+    messageLayout: "default",
   };
 
   return useReducer((settings, action) => {
@@ -3107,7 +4705,7 @@ export function useSettingsReducer() {
   }, defaultSettings);
 }
 
-export function useActivity(localAudioTrack) {
+export function useActivity() {
   // const volumeThreshold = 0.001;
   const [activity, updateActivity] = useReducer(
     (activity, action) => {
@@ -3142,36 +4740,6 @@ export function useActivity(localAudioTrack) {
     { typing: {}, speaking: {} }
   );
 
-  // useEffect(() => {
-  //   var activityInterval = setInterval(() => {
-  //     if (agoraClient.current) {
-  //       var speaking = [];
-
-  //       if (
-  //         localAudioTrack.current &&
-  //         localAudioTrack.current.getVolumeLevel() > volumeThreshold
-  //       ) {
-  //         speaking.push(agoraClient.current.uid);
-  //       }
-
-  //       agoraClient.current.remoteUsers.forEach((user) => {
-  //         if (
-  //           user.audioTrack &&
-  //           user.audioTrack.getVolumeLevel() > volumeThreshold
-  //         )
-  //           speaking.push(user.uid);
-  //       });
-
-  //       updateActivity({
-  //         type: "speaking",
-  //         players: speaking,
-  //       });
-  //     }
-  //   }, 50);
-
-  //   return () => clearInterval(activityInterval);
-  // });
-
   return [activity, updateActivity];
 }
 
@@ -3184,7 +4752,8 @@ export function useAudio(settings) {
 
       switch (action.type) {
         case "play":
-          if (!settings.sounds) return audioInfo;
+          const unmuteable = action.audioName === "vegPing";
+          if (!unmuteable && !settings.sounds) return audioInfo;
           if (!settings.music && action.audioName.includes("music")) {
             return audioInfo;
           }

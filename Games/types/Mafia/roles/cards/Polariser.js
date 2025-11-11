@@ -1,5 +1,9 @@
 const Card = require("../../Card");
-const { PRIORITY_EFFECT_GIVER_DEFAULT } = require("../../const/Priority");
+const Action = require("../../Action");
+const {
+  PRIORITY_EFFECT_GIVER_EARLY,
+  PRIORITY_KILL_DEFAULT,
+} = require("../../const/Priority");
 
 module.exports = class Polariser extends Card {
   constructor(role) {
@@ -11,10 +15,11 @@ module.exports = class Polariser extends Card {
         flags: ["voting", "group", "speech"],
         targets: { include: ["alive"], exclude: ["members"] },
         action: {
+          role: role,
           labels: ["effect", "polarised"],
-          priority: PRIORITY_EFFECT_GIVER_DEFAULT,
+          priority: PRIORITY_EFFECT_GIVER_EARLY,
           run: function () {
-            this.target.giveEffect("Polarised");
+            this.role.giveEffect(this.target, "Polarised");
           },
         },
       },
@@ -23,12 +28,59 @@ module.exports = class Polariser extends Card {
         flags: ["voting", "group"],
         targets: { include: ["alive"], exclude: ["members"] },
         action: {
+          role: role,
           labels: ["effect", "polarised"],
-          priority: PRIORITY_EFFECT_GIVER_DEFAULT,
+          priority: PRIORITY_EFFECT_GIVER_EARLY,
           run: function () {
-            this.target.giveEffect("Polarised");
+            this.role.giveEffect(this.target, "Polarised");
           },
         },
+      },
+    };
+
+    this.listeners = {
+      state: function (stateInfo) {
+        if (!this.hasAbility(["Kill", "Effect"])) {
+          return;
+        }
+
+        if (!stateInfo.name.match(/Night/)) {
+          this.game.HasDonePolarisedAction = false;
+          return;
+        }
+        if (this.game.HasDonePolarisedAction == true) {
+          return;
+        }
+        this.game.HasDonePolarisedAction = true;
+
+        var action = new Action({
+          actor: this.player,
+          game: this.player.game,
+          priority: PRIORITY_KILL_DEFAULT,
+          labels: ["kill", "hidden", "absolute"],
+          run: function () {
+            for (let player of this.game.players) {
+              let visitors = this.getVisitors(player);
+              if (player.hasEffect("Polarised")) {
+                for (let v of visitors) {
+                  if (!v.hasEffect("Polarised")) {
+                    continue;
+                  }
+
+                  if (this.dominates(player)) {
+                    player.kill("polarised", this.actor);
+                  }
+
+                  if (this.dominates(v)) {
+                    v.kill("polarised", this.actor);
+                  }
+                }
+              }
+            }
+          },
+        });
+
+        this.game.queueAction(action);
       },
     };
   }

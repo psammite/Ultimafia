@@ -7,7 +7,6 @@ module.exports = class Humble extends Card {
     this.hideModifier = {
       self: true,
       reveal: true,
-      investigate: true,
     };
 
     var appearance;
@@ -17,20 +16,17 @@ module.exports = class Humble extends Card {
       appearance = "Mafioso";
     } else if (this.role.alignment === "Cult") {
       appearance = "Cultist";
-    } else if (
-      this.role.alignment === "Independent" ||
-      this.role.alignment === "Hostile"
-    ) {
+    } else if (this.role.alignment === "Independent") {
       appearance = "Grouch";
     }
 
     if (!appearance) {
       return;
     }
-
-    this.appearance = {
+    let tempApp = {
       self: appearance,
       reveal: appearance,
     };
+    this.editAppearance(tempApp);
   }
 };

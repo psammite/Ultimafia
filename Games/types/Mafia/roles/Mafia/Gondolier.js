@@ -7,8 +7,9 @@ module.exports = class Gondolier extends Role {
     this.alignment = "Mafia";
     this.cards = [
       "VillageCore",
-      "WinWithMafia",
-      "MeetingMafia",
+      "WinWithFaction",
+      "MeetingFaction",
+
       "RedirectAction",
     ];
 
@@ -17,7 +18,7 @@ module.exports = class Gondolier extends Role {
         actionName: "Choose Passenger",
       },
       "Redirect to Target": {
-        actionName: "Bring passenger to",
+        actionName: "Bring passenger to (Not a Visit)",
       },
     };
   }

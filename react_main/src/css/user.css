@@ -5,9 +5,8 @@
 
   width: 40px;
   height: 40px;
-  border-radius: 50%;
 
-  background-image: url("/images/avatar.webp");
+  background-image: url("/src/images/avatar.webp");
   background-size: 100%;
   background-color: var(--scheme-color);
 }
@@ -17,25 +16,52 @@
   height: 20px !important;
 }
 
-.avatar.small.dead {
+/* default avatar to 40px */
+
+.avatar.mediumlarge {
+  width: 60px !important;
+  height: 60px !important;
+}
+
+.avatar.large {
+  width: 100px !important;
+  height: 100px !important;
+}
+
+/*SANTA CHANGES: In December, uncomment the below lines*/
+/* a.name-with-avatar.no-link > .avatar.small {
+  margin-left: 5px;
+  margin-top: 7px;
+} */
+/*SANTA CHANGES*/
+
+/*SANTA CHANGES: In December, uncomment the below lines*/
+/* .santa-wrapper {
+  position: absolute;
+} */
+/*SANTA CHANGES*/
+
+.avatar.dead {
   filter: grayscale(1) !important;
 }
 
 .avatar.inline {
+  display: inline-flex;
+  align-items: center;
   margin-right: 5px !important;
 }
 
 .video-responsive {
   display: flex;
+  flex-flow: column;
   justify-content: center;
-  padding-bottom: 5px;
+  align-items: stretch;
   min-height: 200px;
 }
 
 .video-responsive-generic {
   display: flex;
   justify-content: center;
-  margin-bottom: 3px;
   position: relative;
   padding-bottom: 56.25%;
   height: 0;
@@ -54,21 +80,24 @@ iframe {
   border-width: 0px;
 }
 
-.avatar.large {
-  width: 100px !important;
-  height: 100px !important;
-}
-
 .avatar .edit {
   display: none;
   flex-flow: row;
   align-items: center;
   justify-content: center;
 
+  /*SANTA CHANGES: In December, comment the below lines*/
   width: 100%;
   height: 100%;
+  /*SANTA CHANGES*/
 
-  border-radius: 50px;
+  /*SANTA CHANGES: In December, uncomment the below lines*/
+  /* width: inherit;
+  height: inherit;
+  position: fixed; */
+  /*SANTA CHANGES*/
+
+  border-radius: inherit;
 
   background-color: black;
   opacity: 0.45;
@@ -79,14 +108,26 @@ iframe {
   display: flex;
 }
 
+.in-love {
+  display: flex;
+  align-items: center;
+
+  color: var(--scheme-color-text);
+  text-decoration: none;
+  white-space: nowrap;
+  padding-right: 10px;
+}
+
 .name-with-avatar {
+  /*SANTA CHANGES: In December, uncomment the below line*/
+  /* position: relative; */
+  /*SANTA CHANGES*/
   display: flex;
   flex-flow: row nowrap;
   align-items: center;
 
   color: var(--scheme-color-text);
   text-decoration: none;
-  line-height: 0px;
   white-space: nowrap;
 }
 
@@ -97,10 +138,6 @@ iframe {
 .name-with-avatar.no-link:hover {
   opacity: 1 !important;
   cursor: default !important;
-}
-
-.name-with-avatar .avatar {
-  margin-right: 5px;
 }
 
 .name-with-avatar .avatar.active {
@@ -133,7 +170,6 @@ iframe {
 }
 
 .badge {
-  margin-left: 2px;
   padding: 2px;
 
   border-radius: 50px;
@@ -141,30 +177,13 @@ iframe {
   line-height: 0px;
 }
 
-.profile {
-  display: flex;
-  flex-flow: row nowrap;
-}
-
 .profile i {
   cursor: pointer;
 }
 
-.profile .main-panel {
-  flex-grow: 1;
-
-  display: flex;
-  flex-flow: column;
-
-  background-color: var(--theme-color);
-  box-shadow: 0px 0px 1px black;
-}
-
 .profile .banner {
-  height: 200px;
-
-  /* background-image: url("/images/banner.png"); */
-  background-color: var(--theme-color-sec);
+  aspect-ratio: 3;
+  height: auto;
 }
 
 .profile .banner .edit {
@@ -208,61 +227,46 @@ iframe {
   filter: brightness(160%);
 }
 
-.profile .user-info {
-  flex-grow: 1;
+.profile .score-info {
+  display: inline-flex;
+  flex-flow: row;
+  gap: 8px;
 
-  display: flex;
-  flex-flow: column;
-  align-items: stretch;
-  justify-content: flex-start;
-
-  padding: 8px;
+  background-color: var(--theme-color-sec);
 }
 
-.profile .avi-name-row {
+.profile .score-info .score-info-column {
+  display: flex;
+  flex-flow: column nowrap;
+  gap: 8px;
+}
+
+.profile .score-info .score-info-row {
   display: flex;
   flex-flow: row nowrap;
-  justify-content: center;
 
-  height: 90px;
+  font-weight: bold;
+  font-size: 20px;
+
+  width: 6em;
 }
 
 .profile .avi-name {
-  display: flex;
-  flex-flow: column;
-  align-items: center;
-
-  position: relative;
-  top: -50px;
-
   font-size: 20px;
-}
-
-.profile .avatar {
-  z-index: 5;
-  box-shadow: 0px 0px 5px black;
-}
-
-.profile .side {
-  margin-left: 10px;
+  word-break: break-all;
 }
 
 .profile .box-panel {
-  margin-bottom: 10px;
-
-  background-color: var(--theme-color);
+  border-radius: 4px;
+  background-color: var(--scheme-color-sec);
 }
 
 .profile .box-panel:last-child {
   margin-bottom: 0px;
 }
 
-.profile .box-panel .heading {
-  color: white;
-}
-
 .profile .box-panel .content {
-  padding: 5px;
+  padding: 4px;
   background-color: var(--scheme-color);
   color: var(--scheme-color-text);
 }
@@ -294,14 +298,6 @@ iframe {
 
 .profile .recent-games .setup {
   overflow-x: auto;
-}
-
-.profile .created-setups .setup {
-  margin-bottom: 5px;
-}
-
-.profile .created-setups .setup:last-child {
-  margin-bottom: 0px;
 }
 
 .profile .friend-request {
@@ -394,30 +390,58 @@ iframe {
   margin-right: 10px;
 }
 
+.MuiPopover-root .miniprofile {
+  margin-left: 0px;
+  background-color: var(--scheme-color);
+}
+
+.miniprofile .pronouns {
+  color: #777777;
+  padding: 8px;
+}
+
+.miniprofile .pie-chart {
+  padding: 8px;
+}
+
+.miniprofile .score-info {
+  display: flex;
+  flex-flow: row;
+  gap: 8px;
+
+  padding: 8px;
+
+  border-top: 1px solid var(--scheme-color-border);
+}
+
+.miniprofile .score-info .score-info-column {
+  display: flex;
+  flex-flow: row;
+  justify-content: center;
+}
+
+.miniprofile .score-info .score-info-row {
+  display: flex;
+  flex-flow: row nowrap;
+  justify-content: center;
+
+  font-weight: bold;
+  font-size: 20px;
+}
+
+.miniprofile .score-info .score-info-smallicon {
+  margin-right: 4px;
+}
+
 .profile .react-mde .grip {
   color: var(--scheme-color-text);
   background-color: var(--scheme-color-sec);
 }
 
-.profile .options {
-  display: flex;
-  flex-flow: row nowrap;
-  align-items: center;
-  justify-content: center;
-
-  margin-bottom: 15px;
-
-  font-size: 20px;
-}
-
 .profile .options i {
-  margin-right: 10px;
-
+  max-width: 24px;
+  font-size: 24px;
   cursor: pointer;
-}
-
-.profile .options i:last-child {
-  margin-right: 0px;
 }
 
 .profile .options i:hover {
@@ -428,80 +452,12 @@ iframe {
   color: #62a0db;
 }
 
-.profile .accounts {
-  display: flex;
-  flex-flow: row;
-  justify-content: center;
+.profile .options i.sel-love {
+  color: crimson;
 }
 
-.profile .account-badge {
-  align-self: flex-start;
-
-  display: flex;
-  flex-flow: row nowrap;
-
-  box-sizing: border-box;
-  margin-left: 10px;
-  border: 3px solid #1d1d1d;
-  border-left: 0px;
-
-  background-color: #1d1d1d;
-  box-shadow: 0px 0px 1px black;
-}
-
-.profile .account-badge:first-child {
-  margin-left: 00px;
-}
-
-.profile .account-badge .icon {
-  width: 30px;
-
-  background-size: 100%;
-}
-
-.profile .account-badge .discord-icon {
-  margin: 1px 4px;
-  height: 34px;
-
-  background-image: url("/images/icons/discord-blue.png");
-}
-
-.profile .account-badge .twitch-icon {
-  margin: 1px 4px;
-  height: 34px;
-
-  background-image: url("/images/icons/twitch-purple.png");
-}
-
-.profile .account-badge .google-icon {
-  margin: 1px 4px;
-  width: 34px;
-  height: 34px;
-
-  background-image: url("/images/icons/google-padding.png");
-  background-color: white;
-}
-
-.profile .account-badge .steam-icon {
-  margin: 1px 4px;
-  width: 34px;
-  height: 34px;
-
-  background-image: url("/images/icons/steam.png");
-}
-
-.profile .account-badge .username-wrapper {
-  display: flex;
-  flex-flow: row;
-  align-items: center;
-
-  padding: 0px 5px 3px 5px;
-
-  background-color: #262626;
-}
-
-.profile .account-badge .username {
-  opacity: 0.7;
+.profile .options i.sel-married {
+  color: gold;
 }
 
 .profile .ratings {
@@ -634,21 +590,23 @@ iframe {
   opacity: 0.6;
 }
 
-.profile .badge-list {
-  margin-top: -10px;
-  margin-bottom: 10px;
+.profile .trophy-case .content {
+  display: flex;
+  flex-direction: column;
 }
 
-/*
- * Media Queries
- */
+.profile .trophy-case .trophy-item {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.08);
+}
 
-@media (max-width: 800px) {
-  .profile {
-    flex-flow: column;
-  }
-
-  .profile .side.column {
-    margin: 10px 0px;
-  }
+.profile .trophy-case .trophy-icon {
+  width: 30px;
+  height: 30px;
+  image-rendering: auto;
 }

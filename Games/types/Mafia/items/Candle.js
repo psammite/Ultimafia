@@ -1,12 +1,15 @@
 const Item = require("../Item");
 const Action = require("../Action");
+const Random = require("../../../../lib/Random");
 const { PRIORITY_INVESTIGATIVE_DEFAULT } = require("../const/Priority");
 
 module.exports = class Candle extends Item {
-  constructor(lifespan) {
+  constructor(options, lifespan) {
     super("Candle");
 
     this.lifespan = lifespan || Infinity;
+    this.magicCult = options?.magicCult;
+    this.broken = options?.broken;
     this.listeners = {
       state: function (stateInfo) {
         if (this.game.getStateName() != "Night") return;
@@ -18,16 +21,17 @@ module.exports = class Candle extends Item {
           target: this.holder,
           game: this.game,
           priority: PRIORITY_INVESTIGATIVE_DEFAULT,
+          item: this,
           labels: ["hidden"],
           run: function () {
-            let visitorNames = this.getVisitors().map((p) => p.name);
-            if (visitorNames.length === 0) {
-              visitorNames.push("no one");
-            }
-
-            this.actor.queueAlert(
-              `You were visited by ${visitorNames.join(", ")} during the night.`
+            let info = this.game.createInformation(
+              "WatcherInfo",
+              this.actor,
+              this.game,
+              this.actor
             );
+            info.processInfoItem(this.item);
+            this.actor.queueAlert(`:watch: ${info.getInfoFormated()}`);
           },
         });
 

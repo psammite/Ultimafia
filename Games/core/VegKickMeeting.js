@@ -107,7 +107,12 @@ module.exports = class VegKickMeeting extends Meeting {
 
     let numKicked = Object.keys(this.votes).length;
     numKicked = Math.min(numKicked, vegKickThreshold);
-    this.game.sendAlert(`Kicking... ${numKicked} / ${vegKickThreshold}`);
+    this.game.sendAlert(
+      `Kicking… ${numKicked} / ${vegKickThreshold}`,
+      undefined,
+      undefined,
+      ["info"]
+    );
     return [numKicked, vegKickThreshold];
   }
 

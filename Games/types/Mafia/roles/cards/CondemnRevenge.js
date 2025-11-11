@@ -7,13 +7,17 @@ module.exports = class CondemnRevenge extends Card {
 
     this.meetings = {
       "Get Revenge": {
-        states: ["Sunset"],
+        states: ["Dusk"],
         flags: ["voting"],
         shouldMeet: function () {
-          for (let action of this.game.actions[0])
-            if (action.target == this.player && action.hasLabel("condemn"))
+          if (!this.hasAbility(["Kill"])) {
+            return false;
+          }
+          for (let action of this.game.actions[0]) {
+            if (action.target == this.player && action.hasLabel("condemn")) {
               return true;
-
+            }
+          }
           return false;
         },
         action: {
@@ -31,13 +35,23 @@ module.exports = class CondemnRevenge extends Card {
         type: "delayActions",
         delayActions: true,
       },
+      /*
+      Dusk:{
+        type: "length",
+        length: 1000 * 60,
+      },
+      
       Overturn: {
+        type: "delayActions",
+        delayActions: true,
+      },
+      Court: {
         type: "delayActions",
         delayActions: true,
       },
       Sunset: {
         type: "add",
-        index: 5,
+        index: 6,
         length: 1000 * 30,
         shouldSkip: function () {
           for (let action of this.game.actions[0])
@@ -47,6 +61,7 @@ module.exports = class CondemnRevenge extends Card {
           return true;
         },
       },
+      */
     };
   }
 };

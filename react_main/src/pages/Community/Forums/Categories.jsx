@@ -4,9 +4,9 @@ import { Link } from "react-router-dom";
 
 import { NameWithAvatar } from "../../User/User";
 import { Time } from "../../../components/Basic";
-import LoadingPage from "../../Loading";
 import { useErrorAlert } from "../../../components/Alerts";
 import { ViewsAndReplies } from "./Forums";
+import { NewLoading } from "../../Welcome/NewLoading";
 
 export default function Categories(props) {
   const [categoryInfo, setCategoryInfo] = useState([]);
@@ -18,7 +18,7 @@ export default function Categories(props) {
     props.updateForumNavInfo({ action: "home" });
 
     axios
-      .get("/forums/categories")
+      .get("/api/forums/categories")
       .then((res) => {
         var categories = res.data.sort(sortItems);
 
@@ -53,6 +53,7 @@ export default function Categories(props) {
             id={thread.author.id}
             name={thread.author.name}
             avatar={thread.author.avatar}
+            vanityUrl={thread.author.vanityUrl}
           />
           <div className="thread-counts">
             <ViewsAndReplies
@@ -77,6 +78,7 @@ export default function Categories(props) {
             id={reply.author.id}
             name={reply.author.name}
             avatar={reply.author.avatar}
+            vanityUrl={reply.author.vanityUrl}
           />
           <div className="reply-age">
             <Time millisec={Date.now() - reply.postDate} />
@@ -133,7 +135,7 @@ export default function Categories(props) {
     );
   });
 
-  if (!loaded) return <LoadingPage />;
+  if (!loaded) return <NewLoading small />;
 
   return categories;
 }

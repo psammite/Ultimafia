@@ -1,17 +1,20 @@
 import React, { useState, useEffect, useRef, useContext } from "react";
 import axios from "axios";
-import { Redirect, Link, useParams, useLocation } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
+import { Navigate, Link, useParams, useLocation } from "react-router-dom";
 import update from "immutability-helper";
+import { Popover, List, ListItem, Typography, Button } from "@mui/material";
 
-import LoadingPage from "../../Loading";
-import { useErrorAlert } from "../../../components/Alerts";
+import CustomMarkdown from "components/CustomMarkdown";
+import { useErrorAlert } from "components/Alerts";
+import { Time, filterProfanity } from "components/Basic";
+import { PageNav } from "components/Nav";
+import { TextEditor } from "components/Form";
+import { UserContext } from "Contexts";
+import { NewLoading } from "../../Welcome/NewLoading";
+import { ThreadPoll } from "components/Poll";
+
 import { VoteWidget } from "./Forums";
 import { NameWithAvatar } from "../../User/User";
-import { Time, filterProfanity } from "../../../components/Basic";
-import { PageNav } from "../../../components/Nav";
-import { TextEditor } from "../../../components/Form";
-import { UserContext } from "../../../Contexts";
 
 export default function Thread(props) {
   const [threadInfo, setThreadInfo] = useState({});
@@ -35,8 +38,14 @@ export default function Thread(props) {
   }, []);
 
   useEffect(() => {
+    // If there's a specific reply to view, load that; otherwise load the last page
+    const replyParam = params.get("reply") || "";
+    const url = replyParam
+      ? `/api/forums/thread/${threadId}?reply=${replyParam}`
+      : `/api/forums/thread/${threadId}?page=last`;
+
     axios
-      .get(`/forums/thread/${threadId}?reply=${params.get("reply") || ""}`)
+      .get(url)
       .then((res) => {
         res.data.content = filterProfanity(
           res.data.content,
@@ -109,7 +118,7 @@ export default function Thread(props) {
 
   function onPostReply() {
     axios
-      .post(`/forums/reply`, {
+      .post(`/api/forums/reply`, {
         thread: threadInfo.id,
         content: replyContent,
       })
@@ -130,7 +139,7 @@ export default function Thread(props) {
 
   function onThreadPageNav(page) {
     axios
-      .get(`/forums/thread/${threadId}?page=${page}`)
+      .get(`/api/forums/thread/${threadId}?page=${page}`)
       .then((res) => {
         res.data.content = filterProfanity(
           res.data.content,
@@ -152,13 +161,25 @@ export default function Thread(props) {
   }
 
   function onNotifyToggled() {
-    setThreadInfo(
-      update(threadInfo, {
-        replyNotify: {
-          $set: !threadInfo.replyNotify,
-        },
-      })
-    );
+    // For the author, toggle replyNotify
+    // For non-authors, toggle isSubscribed
+    if (threadInfo.author.id === user.id) {
+      setThreadInfo(
+        update(threadInfo, {
+          replyNotify: {
+            $set: !threadInfo.replyNotify,
+          },
+        })
+      );
+    } else {
+      setThreadInfo(
+        update(threadInfo, {
+          isSubscribed: {
+            $set: !threadInfo.isSubscribed,
+          },
+        })
+      );
+    }
   }
 
   function onPinToggled() {
@@ -181,9 +202,9 @@ export default function Thread(props) {
     );
   }
 
-  if (redirect) return <Redirect to={redirect} />;
+  if (redirect) return <Navigate to={redirect} />;
 
-  if (!loaded) return <LoadingPage />;
+  if (!loaded) return <NewLoading small />;
 
   const replies = threadInfo.replies.map((reply) => (
     <Post
@@ -222,6 +243,7 @@ export default function Thread(props) {
         onLockToggled={onLockToggled}
         hasTitle
       />
+      <ThreadPoll threadId={threadId} locked={threadInfo.locked} />
       <div className="reply-form-wrapper" ref={replyFormRef}>
         {showReplyForm && (
           <div className="reply-form span-panel">
@@ -254,6 +276,19 @@ export default function Thread(props) {
           maxPage={threadInfo.pageCount}
           onNav={onThreadPageNav}
         />
+        {user.perms.postReply &&
+          (!threadInfo.locked || user.perms.postInLocked) && (
+            <div style={{ marginTop: "16px" }}>
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={() => onReplyClick()}
+                sx={{ minWidth: "120px" }}
+              >
+                Reply
+              </Button>
+            </div>
+          )}
       </div>
     </div>
   );
@@ -280,6 +315,7 @@ function Post(props) {
 
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(postInfo.content);
+  const [anchorEl, setAnchorEl] = useState(null);
   const user = useContext(UserContext);
   const errorAlert = useErrorAlert();
 
@@ -291,14 +327,14 @@ function Post(props) {
     if (!shouldDelete) return;
 
     axios
-      .post(`/forums/${itemType}/delete`, { [itemType]: postInfo.id })
+      .post(`/api/forums/${itemType}/delete`, { [itemType]: postInfo.id })
       .then(onDelete)
       .catch(errorAlert);
   }
 
   function onRestoreClick() {
     axios
-      .post(`/forums/${itemType}/restore`, { [itemType]: postInfo.id })
+      .post(`/api/forums/${itemType}/restore`, { [itemType]: postInfo.id })
       .then(onRestore)
       .catch(errorAlert);
   }
@@ -309,7 +345,7 @@ function Post(props) {
 
   function onEditSave() {
     axios
-      .post(`/forums/${itemType}/edit`, {
+      .post(`/api/forums/${itemType}/edit`, {
         [itemType]: postInfo.id,
         content: editContent,
       })
@@ -330,23 +366,31 @@ function Post(props) {
 
   function onNotifyClick() {
     axios
-      .post(`/forums/thread/notify`, { thread: postInfo.id })
+      .post(`/api/forums/thread/notify`, { thread: postInfo.id })
       .then(onNotifyToggled)
       .catch(() => {});
   }
 
   function onTogglePinnedClick() {
     axios
-      .post(`/forums/thread/togglePinned`, { thread: postInfo.id })
+      .post(`/api/forums/thread/togglePinned`, { thread: postInfo.id })
       .then(onPinToggled)
       .catch(errorAlert);
   }
 
   function onToggleLockedClick() {
     axios
-      .post(`/forums/thread/toggleLocked`, { thread: postInfo.id })
+      .post(`/api/forums/thread/toggleLocked`, { thread: postInfo.id })
       .then(onLockToggled)
       .catch(errorAlert);
+  }
+
+  function handlePopoverOpen(event) {
+    setAnchorEl(event.currentTarget);
+  }
+
+  function handlePopoverClose() {
+    setAnchorEl(null);
   }
 
   var content = postInfo.content;
@@ -385,6 +429,7 @@ function Post(props) {
                 name={postInfo.author.name}
                 avatar={postInfo.author.avatar}
                 groups={postInfo.author.groups}
+                vanityUrl={postInfo.author.vanityUrl}
               />
               <div className="post-date">
                 <Time minSec millisec={Date.now() - postInfo.postDate} />
@@ -419,24 +464,97 @@ function Post(props) {
                   (!locked || user.perms.postInLocked) && (
                     <i className="fas fa-pencil-alt" onClick={onEditClick} />
                   )}
-                {itemType === "thread" && postInfo.author.id === user.id && (
-                  <i
-                    className={`fa${postInfo.replyNotify ? "s" : "r"} fa-bell`}
-                    onClick={onNotifyClick}
-                  />
+                {itemType === "thread" && user.loggedIn && (
+                  <>
+                    <i
+                      className={`fa${
+                        postInfo.author.id === user.id
+                          ? postInfo.replyNotify
+                            ? "s"
+                            : "r"
+                          : postInfo.isSubscribed
+                          ? "s"
+                          : "r"
+                      } fa-bell`}
+                      onClick={onNotifyClick}
+                      onMouseEnter={handlePopoverOpen}
+                      onMouseLeave={handlePopoverClose}
+                      style={{ cursor: "pointer" }}
+                    />
+                    <Popover
+                      sx={{
+                        pointerEvents: "none",
+                      }}
+                      open={Boolean(anchorEl)}
+                      anchorEl={anchorEl}
+                      anchorOrigin={{
+                        vertical: "bottom",
+                        horizontal: "left",
+                      }}
+                      transformOrigin={{
+                        vertical: "top",
+                        horizontal: "left",
+                      }}
+                      onClose={handlePopoverClose}
+                      disableRestoreFocus
+                    >
+                      <div style={{ padding: "8px 12px" }}>
+                        <Typography
+                          variant="subtitle2"
+                          sx={{ fontWeight: "bold", mb: 1 }}
+                        >
+                          Subscribed Users:
+                        </Typography>
+                        {postInfo.subscriberUsers &&
+                        postInfo.subscriberUsers.length > 0 ? (
+                          <List dense sx={{ py: 0 }}>
+                            {postInfo.author.id && postInfo.replyNotify && (
+                              <ListItem sx={{ py: 0.5, px: 1 }}>
+                                <Typography variant="body2">
+                                  {postInfo.author.name} (Author)
+                                </Typography>
+                              </ListItem>
+                            )}
+                            {postInfo.subscriberUsers.map((subscriber) => (
+                              <ListItem
+                                key={subscriber.id}
+                                sx={{ py: 0.5, px: 1 }}
+                              >
+                                <Typography variant="body2">
+                                  {subscriber.name}
+                                </Typography>
+                              </ListItem>
+                            ))}
+                          </List>
+                        ) : (
+                          <>
+                            {postInfo.author.id && postInfo.replyNotify ? (
+                              <List dense sx={{ py: 0 }}>
+                                <ListItem sx={{ py: 0.5, px: 1 }}>
+                                  <Typography variant="body2">
+                                    {postInfo.author.name} (Author)
+                                  </Typography>
+                                </ListItem>
+                              </List>
+                            ) : (
+                              <Typography
+                                variant="body2"
+                                sx={{ fontStyle: "italic" }}
+                              >
+                                No subscribers
+                              </Typography>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </Popover>
+                  </>
                 )}
                 {permaLink && (
                   <Link to={permaLink} onClick={() => onPermaLinkClick()}>
                     <i className="fas fa-link" />
                   </Link>
                 )}
-                {user.perms.postReply &&
-                  (!locked || user.perms.postInLocked) && (
-                    <i
-                      className="reply-btn fas fa-reply"
-                      onClick={onReplyClick}
-                    />
-                  )}
               </>
             )}
             {postInfo.deleted && user.perms.restoreDeleted && (
@@ -446,7 +564,7 @@ function Post(props) {
         </div>
         {!editing && (
           <div className="md-content">
-            <ReactMarkdown source={content} />
+            <CustomMarkdown>{content}</CustomMarkdown>
           </div>
         )}
         {editing && (
@@ -459,7 +577,7 @@ function Post(props) {
               >
                 Save
               </div>
-              <div className="btn btn-theme-third" onClick={onEditCancel}>
+              <div className="btn btn-theme-sec" onClick={onEditCancel}>
                 Cancel
               </div>
             </div>

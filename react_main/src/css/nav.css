@@ -2,30 +2,41 @@
   flex-grow: 1;
 
   display: flex;
-  flex-flow: row nowrap;
+  /* flex-flow: row nowrap; */
   align-items: center;
-  justify-content: space-evenly;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0 16px;
 
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
+  user-select: none;
+}
+
+.nav .user-wrapper {
+  color: white;
 }
 
 .nav a {
-  margin-left: 15px;
-  padding: 0px 0px 3px 0px;
-  border-bottom: 5px solid transparent;
-
   color: white;
-  font-family: BNoir;
+  font-family: var(--primaryFont); /* used to be BNoir */
   /* font-weight: 700; */
-  font-size: 26px;
+  font-size: 24px;
   text-decoration: none;
   opacity: 0.5;
+  transition: var(--hoverTransition);
+
+  padding: 12px;
+  /*border-radius: 32px;*/
+  /*text-decoration: underline rgba(0, 0, 0, 1);*/
+  font-weight: bold;
 }
 
 .nav a:hover {
-  opacity: 0.7;
+  opacity: 1;
+  /*background: var(--theme-color-sec);*/
+  /*text-decoration-color: white;*/
 }
 
 .nav a.active {
@@ -34,6 +45,8 @@
 
 .nav-wrapper .profile-link {
   border: none;
+  padding: 0px;
+  line-height: 0;
 
   opacity: 1;
 }
@@ -43,8 +56,6 @@
 }
 
 .nav i {
-  margin-left: 25px;
-
   font-size: 20px;
   cursor: pointer;
 }
@@ -60,22 +71,22 @@
   border: black;
 
   background-color: var(--theme-color);
-  font-family: NoirMedium;
-  text-transform: uppercase;
+  font-family: var(--primaryFont);
+  font-weight: bold;
 }
 
 .sub-nav a {
-  padding: 10px 10px 0px 10px;
-  border-bottom: 2px solid transparent;
+  padding: 5px 10px 5px 10px;
 
   color: white;
   /* text-decoration: none;
   text-align: center;
   font-weight: 500; */
+  transition: var(--hoverTransition);
 }
 
 .sub-nav a:hover {
-  opacity: 0.8;
+  background: var(--theme-color-sec);
 }
 
 .sub-nav a.active {
@@ -166,14 +177,11 @@
 }
 
 .page-nav {
-  align-self: flex-start;
-
   display: flex;
   flex-flow: row nowrap;
 
-  margin-bottom: 10px;
-
-  border: 1px solid var(--theme-color-sec);
+  /*border: 1px solid var(--theme-color-sec);*/
+  -webkit-user-select: none;
   user-select: none;
 }
 
@@ -197,7 +205,7 @@
 }
 
 .page-nav.inverted {
-  border: 1px solid var(--theme-color);
+  /* border: 1px solid var(--theme-color); */
 }
 
 .page-nav.inverted .page-nav-left,

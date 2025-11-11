@@ -2,7 +2,7 @@ import React, { useContext, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import axios from "axios";
 
-import CreateSetup from "./CreateSetup";
+import CreateBrowser from "./CreateBrowser";
 import { SiteInfoContext } from "../../../Contexts";
 import { useForm } from "../../../components/Form";
 import { useErrorAlert } from "../../../components/Alerts";
@@ -27,11 +27,12 @@ export default function CreateAcrotopiaSetup() {
     document.title = "Create Acrotopia Setup | UltiMafia";
   }, []);
 
-  function onCreateSetup(roleData, editing, setRedirect) {
+  function onCreateSetup(roleData, editing, setNavigate, gameSettings) {
     axios
-      .post("/setup/create", {
+      .post("/api/setup/create", {
         gameType: gameType,
         roles: roleData.roles,
+        gameSettings: gameSettings,
         name: formFields[0].value,
         startState: "Night",
         whispers: false,
@@ -45,13 +46,13 @@ export default function CreateAcrotopiaSetup() {
           `${editing ? "Edited" : "Created"} setup '${formFields[0].value}'`,
           "success"
         );
-        setRedirect(res.data);
+        setNavigate(res.data);
       })
       .catch(errorAlert);
   }
 
   return (
-    <CreateSetup
+    <CreateBrowser
       gameType={gameType}
       formFields={formFields}
       updateFormFields={updateFormFields}

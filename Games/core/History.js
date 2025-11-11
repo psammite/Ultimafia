@@ -8,8 +8,10 @@ module.exports = class History {
         meetings: {},
         alerts: [],
         stateEvents: {},
+        obituaries: {},
         roles: {},
         dead: {},
+        exorcised: {},
       },
     };
   }
@@ -26,8 +28,10 @@ module.exports = class History {
       meetings: {},
       alerts: [],
       stateEvents: {},
+      obituaries: {},
       roles: { ...this.states[prevState].roles },
       dead: { ...this.states[prevState].dead },
+      exorcised: { ...this.states[prevState].exorcised },
       extraInfo: {},
     };
   }
@@ -60,6 +64,11 @@ module.exports = class History {
   addAlert(message, state) {
     state = state == null ? this.game.currentState : state;
     this.states[state].alerts.push(message);
+  }
+
+  addObituaries(obituariesMessage, state) {
+    state = state == null ? this.game.currentState : state;
+    this.states[state].obituaries[obituariesMessage.source] = obituariesMessage;
   }
 
   setStateName(name, state) {
@@ -101,8 +110,11 @@ module.exports = class History {
         meetings: {},
         alerts: [],
         stateEvents: Object.keys(info.stateEvents),
+        obituaries: info.obituaries,
         roles: info.roles,
         dead: info.dead,
+        exorcised: info.exorcised,
+        winners: info.winners ? info.winners : null,
         extraInfo: info.extraInfo,
       };
 
@@ -136,6 +148,11 @@ module.exports = class History {
     this.states[state].dead[player.id] = dead;
   }
 
+  recordExorcised(player, exorcised) {
+    var state = this.game.currentState;
+    this.states[state].exorcised[player.id] = exorcised;
+  }
+
   recordAllRoles() {
     var state = this.game.currentState;
 
@@ -151,5 +168,17 @@ module.exports = class History {
 
     for (let player of this.game.players)
       this.states[state].dead[player.id] = !player.alive;
+  }
+
+  recordAllExorcised() {
+    var state = this.game.currentState;
+
+    for (let player of this.game.players)
+      this.states[state].exorcised[player.id] = player.exorcised;
+  }
+
+  recordWinners() {
+    var state = this.game.currentState;
+    this.states[state].winners = this.game.winners.getWinnersInfo();
   }
 };

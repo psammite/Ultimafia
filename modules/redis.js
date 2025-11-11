@@ -5,7 +5,9 @@ const sha1 = require("sha1");
 const models = require("../db/models");
 const constants = require("../data/constants");
 const Random = require("./../lib/Random");
-const client = redis.createClient({ url: "redis://redis:6379" });
+const utils = require("../lib/Utils");
+
+var client = redis.createClient({ url: "redis://redis:6379" });
 
 client.on("error", (e) => {
   throw e;
@@ -114,24 +116,86 @@ async function userCached(userId) {
   return client.existsAsync(`user:${userId}:info:id`);
 }
 
+async function invalidateCachedUser(userId) {
+  client.del(`user:${userId}:info:id`);
+}
+
 async function cacheUserInfo(userId, reset) {
   var exists = await userCached(userId);
 
   if (!exists || reset) {
-    var user = await models.User.findOne({ id: userId, deleted: false }).select(
-      "id name avatar blockedUsers settings itemsOwned nameChanged bdayChanged birthday"
-    );
+    const maxOwnedCustomEmotes =
+      constants.maxOwnedCustomEmotes + constants.maxOwnedCustomEmotesExtra;
+
+    var user = await models.User.findOne({ id: userId, deleted: false })
+      .select(
+        "_id id name avatar blockedUsers settings customEmotes itemsOwned nameChanged bdayChanged birthday pronouns achievements redHearts goldHearts dailyChallengesCompleted dailyChallenges"
+      )
+      .populate({
+        path: "customEmotes",
+        select: "id extension name -_id",
+        options: { limit: maxOwnedCustomEmotes },
+      });
 
     if (!user) return false;
 
+    // Count the total games played - games are retained in this array even if they expire
+    const aggregation = await models.User.aggregate([
+      { $match: { _id: user._id } },
+      { $project: { count: { $size: "$games" } } },
+    ]);
+    var gamesPlayed = 0;
+    aggregation.forEach((match) => (gamesPlayed = match.count));
+
+    // Get all of the user's heart refreshes
+    let heartRefreshes = await models.HeartRefresh.find({
+      userId: userId,
+    }).select("when type");
+
+    var redHeartRefreshTimestamp = 0;
+    var goldHeartRefreshTimestamp = 0;
+
+    for (let heartRefresh of heartRefreshes) {
+      if (heartRefresh.type === "red")
+        redHeartRefreshTimestamp = heartRefresh.when;
+      else if (heartRefresh.type === "gold")
+        goldHeartRefreshTimestamp = heartRefresh.when;
+    }
+
     user = user.toJSON();
+    utils.remapCustomEmotes(user, userId);
+
+    // Fetch vanity URL
+    const vanityUrl = await models.VanityUrl.findOne({
+      userId: userId,
+    }).select("url -_id");
 
     await client.setAsync(`user:${userId}:info:id`, userId);
     await client.setAsync(`user:${userId}:info:name`, user.name);
-    await client.setAsync(`user:${userId}:info:avatar`, user.avatar);
+    await client.setAsync(`user:${userId}:info:avatar`, user.avatar || false);
+    await client.setAsync(
+      `user:${userId}:info:vanityUrl`,
+      vanityUrl ? vanityUrl.url : ""
+    );
     await client.setAsync(`user:${userId}:info:nameChanged`, user.nameChanged);
     await client.setAsync(`user:${userId}:info:bdayChanged`, user.bdayChanged);
-    await client.setAsync(`user:${userId}:info:birthday`, user.birthday);
+    await client.setAsync(`user:${userId}:info:birthday`, user.birthday || 0);
+    await client.setAsync(`user:${userId}:info:pronouns`, user.pronouns);
+    await client.setAsync(`user:${userId}:info:gamesPlayed`, gamesPlayed);
+    await client.setAsync(`user:${userId}:info:redHearts`, user.redHearts);
+    await client.setAsync(`user:${userId}:info:goldHearts`, user.goldHearts);
+    await client.setAsync(
+      `user:${userId}:info:redHeartRefreshTimestamp`,
+      redHeartRefreshTimestamp
+    );
+    await client.setAsync(
+      `user:${userId}:info:goldHeartRefreshTimestamp`,
+      goldHeartRefreshTimestamp
+    );
+    await client.setAsync(
+      `user:${userId}:info:dailyChallenges`,
+      JSON.stringify(user.dailyChallenges || [])
+    );
     await client.setAsync(
       `user:${userId}:info:blockedUsers`,
       JSON.stringify(user.blockedUsers || [])
@@ -156,9 +220,17 @@ async function cacheUserInfo(userId, reset) {
   client.expire(`user:${userId}:info:id`, 3600);
   client.expire(`user:${userId}:info:name`, 3600);
   client.expire(`user:${userId}:info:avatar`, 3600);
+  client.expire(`user:${userId}:info:vanityUrl`, 3600);
   client.expire(`user:${userId}:info:nameChanged`, 3600);
   client.expire(`user:${userId}:info:bdayChanged`, 3600);
   client.expire(`user:${userId}:info:birthday`, 3600);
+  client.expire(`user:${userId}:info:pronouns`, 3600);
+  client.expire(`user:${userId}:info:gamesPlayed`, 3600);
+  client.expire(`user:${userId}:info:redHearts`, 3600);
+  client.expire(`user:${userId}:info:goldHearts`, 3600);
+  client.expire(`user:${userId}:info:redHeartRefreshTimestamp`, 3600);
+  client.expire(`user:${userId}:info:goldHeartRefreshTimestamp`, 3600);
+  client.expire(`user:${userId}:info:dailyChallenges`, 3600);
   client.expire(`user:${userId}:info:blockedUsers`, 3600);
   client.expire(`user:${userId}:info:settings`, 3600);
   client.expire(`user:${userId}:info:itemsOwned`, 3600);
@@ -171,9 +243,17 @@ async function deleteUserInfo(userId) {
   await client.delAsync(`user:${userId}:info:id`);
   await client.delAsync(`user:${userId}:info:name`);
   await client.delAsync(`user:${userId}:info:avatar`);
+  await client.delAsync(`user:${userId}:info:vanityUrl`);
   await client.delAsync(`user:${userId}:info:nameChanged`);
   await client.delAsync(`user:${userId}:info:bdayChanged`);
   await client.delAsync(`user:${userId}:info:birthday`);
+  await client.delAsync(`user:${userId}:info:pronouns`);
+  await client.delAsync(`user:${userId}:info:gamesPlayed`);
+  await client.delAsync(`user:${userId}:info:redHearts`);
+  await client.delAsync(`user:${userId}:info:goldHearts`);
+  await client.delAsync(`user:${userId}:info:redHeartRefreshTimestamp`);
+  await client.delAsync(`user:${userId}:info:goldHeartRefreshTimestamp`);
+  await client.delAsync(`user:${userId}:info:dailyChallenges`);
   await client.delAsync(`user:${userId}:info:status`);
   await client.delAsync(`user:${userId}:info:blockedUsers`);
   await client.delAsync(`user:${userId}:info:settings`);
@@ -195,6 +275,19 @@ async function getUserInfo(userId) {
   info.bdayChanged =
     (await client.getAsync(`user:${userId}:info:bdayChanged`)) == "true";
   info.birthday = await client.getAsync(`user:${userId}:info:birthday`);
+  info.pronouns = await client.getAsync(`user:${userId}:info:pronouns`);
+  info.gamesPlayed = await client.getAsync(`user:${userId}:info:gamesPlayed`);
+  info.redHearts = await client.getAsync(`user:${userId}:info:redHearts`);
+  info.goldHearts = await client.getAsync(`user:${userId}:info:goldHearts`);
+  info.redHeartRefreshTimestamp = await client.getAsync(
+    `user:${userId}:info:redHeartRefreshTimestamp`
+  );
+  info.goldHeartRefreshTimestamp = await client.getAsync(
+    `user:${userId}:info:goldHeartRefreshTimestamp`
+  );
+  info.dailyChallenges = JSON.parse(
+    await client.getAsync(`user:${userId}:info:dailyChallenges`)
+  );
   info.status = await client.getAsync(`user:${userId}:info:status`);
   info.blockedUsers = JSON.parse(
     await client.getAsync(`user:${userId}:info:blockedUsers`)
@@ -206,6 +299,12 @@ async function getUserInfo(userId) {
     await client.getAsync(`user:${userId}:info:itemsOwned`)
   );
   info.groups = JSON.parse(await client.getAsync(`user:${userId}:info:groups`));
+  info.achievements = await client.getAsync(`user:${userId}:info:achievements`);
+
+  const vanityUrl = await client.getAsync(`user:${userId}:info:vanityUrl`);
+  if (vanityUrl) {
+    info.vanityUrl = vanityUrl;
+  }
 
   return info;
 }
@@ -231,6 +330,11 @@ async function getBasicUserInfo(userId, delTemplate) {
   info.avatar = (await client.getAsync(`user:${userId}:info:avatar`)) == "true";
   info.status = await client.getAsync(`user:${userId}:info:status`);
   info.groups = JSON.parse(await client.getAsync(`user:${userId}:info:groups`));
+
+  const vanityUrl = await client.getAsync(`user:${userId}:info:vanityUrl`);
+  if (vanityUrl) {
+    info.vanityUrl = vanityUrl;
+  }
 
   var settings = JSON.parse(
     await client.getAsync(`user:${userId}:info:settings`)
@@ -303,6 +407,105 @@ async function authenticateToken(token) {
   return userId;
 }
 
+async function getLeaderBoardStat(field) {
+  const key = `leaderboard:${field}`;
+
+  const cachedLeaderboard = await client.getAsync(key);
+  if (cachedLeaderboard) {
+    // Got cached result, no need to perform query
+    return JSON.parse(cachedLeaderboard);
+  } else {
+    var sortBy = {};
+    sortBy[field] = -1;
+
+    // Query the top 100 users for a given field
+    const leadingUsers = await models.User.find({ deleted: false })
+      .select(
+        "id name avatar kudos karma achievementCount winRate dailyChallengesCompleted _id"
+      )
+      .sort(sortBy)
+      .limit(100);
+
+    // Cache the result in redis so that we don't have to do the query again for a little bit
+    await client.setAsync(key, JSON.stringify(leadingUsers));
+
+    // Causes leaderboards update every 2 minutes
+    client.expire(key, 120);
+
+    return leadingUsers;
+  }
+}
+
+/*
+ * Gets the setup that appears in the ez-host feature.
+ * - New players should retrieve the classic setup
+ * - Everyone one else gets an hourly rotating setup from the featured setups
+ *
+ * @param featuredCategory either "classic", "main", or "minigames"
+ */
+async function getFeaturedSetup(featuredCategory) {
+  const key = `game:featuredSetup:${featuredCategory}`;
+
+  var setup = await client.getAsync(key);
+  if (setup) {
+    // Got cached result, no need to perform query
+    return JSON.parse(setup);
+  } else {
+    if (featuredCategory === "classic") {
+      // If the featuredCategory is classic, then we need to find *the* classic setup in the database
+      setup = await models.Setup.findOne({
+        // case sensitive, name is included in search for performance since it's indexed
+        name: "Classic",
+
+        // A bit hacky but the roles are alphabetically sorted so hey it works
+        roles: '[{"Cop:":1,"Doctor:":1,"Villager:":3,"Mafioso:":2}]',
+
+        // ranked: true should prevent stale classic setups from being searched
+        ranked: true,
+      }).select(
+        "id gameType name roles closed useRoleGroups roleGroupSizes count total -_id"
+      );
+    } else {
+      let filter = {
+        featured: true,
+      };
+
+      // I would ideally like to incorporate setup tags into this one day so that tags can help separate featured setups for different lobbies
+      // For now, only minigames is separated
+      if (featuredCategory === "minigames") {
+        filter.gameType = { $ne: "Mafia" };
+      } else {
+        filter.gameType = "Mafia";
+      }
+
+      var setups = await models.Setup.find(filter)
+        .sort({ _id: -1 })
+        .limit(100)
+        .select(
+          "id gameType name roles closed useRoleGroups roleGroupSizes count total featured -_id"
+        )
+        .populate("creator", "id name avatar tag -_id");
+
+      const hoursSinceEpoch = Math.floor(Date.now() / (1000 * 60 * 60));
+      const index = hoursSinceEpoch % setups.length;
+
+      setup = setups[index];
+    }
+
+    if (!setup) {
+      return null;
+    }
+
+    // Cache the result in redis so that we don't have to do the query again for a little bit
+    await client.setAsync(key, JSON.stringify(setup));
+
+    // Allow cache to expire every ten minutes (an hour expiration could cause setups to be skipped)
+    client.expire(key, 600);
+
+    return setup;
+  }
+}
+
 async function gameExists(gameId) {
   return (await client.sismemberAsync("games", gameId)) != 0;
 }
@@ -357,6 +560,12 @@ async function getGameInfo(gameId, idsOnly) {
   info.status = await client.getAsync(`game:${gameId}:status`);
   info.hostId = await client.getAsync(`game:${gameId}:hostId`);
   info.lobby = await client.getAsync(`game:${gameId}:lobby`);
+  info.spectatorCount = await client.getAsync(`game:${gameId}:spectatorCount`);
+  info.gameState = await client.getAsync(`game:${gameId}:gameState`);
+  info.winnersInfo = JSON.parse(
+    (await client.getAsync(`game:${gameId}:winnersInfo`)) || "{}"
+  );
+  info.lobbyName = await client.getAsync(`game:${gameId}:lobbyName`);
   info.settings = JSON.parse(
     (await client.getAsync(`game:${gameId}:settings`)) || "{}"
   );
@@ -417,6 +626,19 @@ async function setGameStatus(gameId, status) {
 
   if (status == "In Progress")
     await client.setAsync(`game:${gameId}:startTime`, Date.now());
+}
+
+async function setGameHost(gameId, hostId) {
+  await client.setAsync(`game:${gameId}:hostId`, hostId);
+}
+
+async function setGameSetup(gameId, setupID) {
+  let info = JSON.parse(
+    (await client.getAsync(`game:${gameId}:settings`)) || "{}"
+  );
+  info.setup = setupID;
+  //JSON.stringify(info);
+  await client.setAsync(`game:${gameId}:settings`, JSON.stringify(info));
 }
 
 async function getOpenGames(gameType) {
@@ -516,6 +738,10 @@ async function createGame(gameId, info) {
 
     await client.setAsync(`game:${gameId}:${key}`, val);
   }
+
+  await client.setAsync(`game:${gameId}:spectatorCount`, 0);
+  await client.setAsync(`game:${gameId}:gameState`, "Pregame");
+  await client.setAsync(`game:${gameId}:winnersInfo`, "[]");
 
   await client.saddAsync("games", gameId);
 
@@ -629,6 +855,10 @@ async function deleteGame(gameId, game) {
   await client.delAsync(`game:${gameId}:status`);
   await client.delAsync(`game:${gameId}:hostId`);
   await client.delAsync(`game:${gameId}:lobby`);
+  await client.delAsync(`game:${gameId}:spectatorCount`);
+  await client.delAsync(`game:${gameId}:gameState`);
+  await client.delAsync(`game:${gameId}:winnersInfo`);
+  await client.delAsync(`game:${gameId}:lobbyName`);
   await client.delAsync(`game:${gameId}:players`);
   await client.delAsync(`game:${gameId}:settings`);
   await client.delAsync(`game:${gameId}:createTime`);
@@ -662,12 +892,12 @@ async function breakGame(gameId) {
     users: users,
     startTime: game.startTime,
     endTime: Date.now(),
+    lobbyName: game.settings.lobbyName,
     ranked: game.settings.ranked,
     competitive: game.settings.competitive,
     private: game.settings.private,
     guests: game.settings.guests,
     spectating: game.settings.spectating,
-    voiceChat: game.settings.voiceChat,
     readyCheck: game.settings.readyCheck,
     noVeg: game.settings.noVeg,
     stateLengths: game.settings.stateLengths,
@@ -675,6 +905,21 @@ async function breakGame(gameId) {
     broken: true,
   });
   await game.save();
+}
+
+async function setSpectatorCount(gameId, spectatorCount) {
+  await client.setAsync(`game:${gameId}:spectatorCount`, spectatorCount);
+}
+
+async function setGameState(gameId, gameState) {
+  await client.setAsync(`game:${gameId}:gameState`, gameState);
+}
+
+async function setWinnersInfo(gameId, winnersInfo) {
+  await client.setAsync(
+    `game:${gameId}:winnersInfo`,
+    JSON.stringify(winnersInfo)
+  );
 }
 
 async function gameWebhookPublished(gameId) {
@@ -863,6 +1108,18 @@ async function rateLimit(userId, type) {
   return !exists;
 }
 
+async function cacheDeletedVanityUrl(vanityUrl, userId) {
+  const key = `deletedVanityUrl:${vanityUrl}`;
+  await client.setAsync(key, userId);
+  // Keep the mapping for 7 days to give users time to update bookmarks/links
+  await client.expireAsync(key, 604800);
+}
+
+async function getDeletedVanityUrlUserId(vanityUrl) {
+  const key = `deletedVanityUrl:${vanityUrl}`;
+  return await client.getAsync(key);
+}
+
 module.exports = {
   client,
   getUserDbId,
@@ -871,6 +1128,7 @@ module.exports = {
   getFavSetupsHashtable,
   updateFavSetup,
   userCached,
+  invalidateCachedUser,
   cacheUserInfo,
   deleteUserInfo,
   getUserInfo,
@@ -882,6 +1140,8 @@ module.exports = {
   getUserItemsOwned,
   createAuthToken,
   authenticateToken,
+  getLeaderBoardStat,
+  getFeaturedSetup,
   gameExists,
   inGame,
   hostingScheduled,
@@ -896,6 +1156,8 @@ module.exports = {
   getGameType,
   getGameReservations,
   setGameStatus,
+  setGameHost,
+  setGameSetup,
   getOpenGames,
   getOpenPublicGames,
   getInProgressGames,
@@ -908,6 +1170,9 @@ module.exports = {
   unreserveGame,
   deleteGame,
   breakGame,
+  setSpectatorCount,
+  setGameState,
+  setWinnersInfo,
   gameWebhookPublished,
   registerGameServer,
   removeGameServer,
@@ -926,4 +1191,6 @@ module.exports = {
   hasPermission,
   clearPermissionCache,
   rateLimit,
+  cacheDeletedVanityUrl,
+  getDeletedVanityUrlUserId,
 };

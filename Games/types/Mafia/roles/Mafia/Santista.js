@@ -7,9 +7,10 @@ module.exports = class Santista extends Role {
     this.alignment = "Mafia";
     this.cards = [
       "VillageCore",
-      "WinWithMafia",
-      "MeetingMafia",
-      "MeetWithMasons",
+      "WinWithFaction",
+      "MeetingFaction",
+
+      "DaySantista",
     ];
   }
 };

@@ -6,14 +6,10 @@ module.exports = class Busybody extends Role {
     this.alignment = "Mafia";
     this.cards = [
       "VillageCore",
-      "WinWithMafia",
-      "MeetingMafia",
-      "WatchPlayerBoolean",
+      "WinWithFaction",
+      "MeetingFaction",
+      "StyleContest",
+      //"WatchPlayerBoolean",
     ];
-    this.meetingMods = {
-      "Watch (Boolean)": {
-        actionName: "Observe for Visitors",
-      },
-    };
   }
 };

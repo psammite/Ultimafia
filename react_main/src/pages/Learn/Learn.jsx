@@ -1,88 +1,41 @@
 import React, { useState, useEffect } from "react";
-import { Route, Switch, Redirect, useLocation } from "react-router-dom";
-
-import LearnMafia from "./LearnMafia";
-import LearnSplitDecision from "./LearnSplitDecision";
-import LearnResistance from "./LearnResistance";
-import LearnOneNight from "./LearnOneNight";
-import LearnGhost from "./LearnGhost";
-import LearnJotto from "./LearnJotto";
-import LearnAcrotopia from "./LearnAcrotopia";
-import LearnSecretDictator from "./LearnSecretDictator";
-import LearnWackyWords from "./LearnWackyWords";
+import { Route, Routes, Navigate, useLocation } from "react-router-dom";
 
 import Setups from "./Setup/SetupPage";
+import SetupsNightOrder from "./Setup/SetupNightOrder";
+import RolePage from "./role/RolePage";
+import Games from "./Games";
+import Terminology from "./Terminology";
+import Achievements from "./Achievements";
 
-import { SubNav } from "../../components/Nav";
-import { GameTypes } from "../../Constants";
+import "css/play.css";
 
-import "../../css/play.css";
+import { Box, Card, Link, AppBar, Toolbar } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 
 export default function Learn(props) {
-  const defaultGameType = "Mafia";
-
+  const theme = useTheme();
   const location = useLocation();
-  const params = new URLSearchParams(location.search);
-  const [gameType, setGameType] = useState(
-    params.get("game") || localStorage.getItem("gameType") || defaultGameType
-  );
-
-  useEffect(() => {
-    localStorage.setItem("gameType", gameType);
-  }, [location.pathname, gameType]);
-
-  function onFilterGameType(gameType) {
-    setGameType(gameType);
-  }
-
   let setupView = location.pathname.startsWith("/learn/setup");
+
   return (
     <>
-      <SubNav
-        links={[]}
-        showFilter={!setupView}
-        filterSel={gameType}
-        filterOptions={GameTypes}
-        onFilter={onFilterGameType}
-        filterIcon={<i className="fas fa-gamepad" />}
-      />
-      <div className="inner-content play">
-        <Switch>
-          <Route exact path="/learn/setup/:setupId" render={() => <Setups />} />
-
-          <Route
-            exact
-            path="/learn"
-            render={() => {
-              switch (gameType) {
-                case "Mafia":
-                  return <LearnMafia />;
-                case "Split Decision":
-                  return <LearnSplitDecision />;
-                case "Resistance":
-                  return <LearnResistance />;
-                case "One Night":
-                  return <LearnOneNight />;
-                case "Ghost":
-                  return <LearnGhost />;
-                case "Jotto":
-                  return <LearnJotto />;
-                case "Acrotopia":
-                  return <LearnAcrotopia />;
-                case "Secret Dictator":
-                  return <LearnSecretDictator />;
-                case "Wacky Words":
-                  return <LearnWackyWords />;
-                default:
-                  setGameType(defaultGameType);
-                  return <></>;
-              }
-            }}
-          />
-
-          <Route render={() => <Redirect to="/play" />} />
-        </Switch>
-      </div>
+      <Box maxWidth="1080px" sx={{ mt: 1, flexGrow: 1 }}>
+        <Card sx={{ padding: theme.spacing(3), textAlign: "justify" }}>
+          <Routes>
+            <Route path="games" element={<Games />} />
+            <Route path="setup/:setupId" element={<Setups />} />
+            <Route
+              path="setup/:setupId/nightorder"
+              element={<SetupsNightOrder />}
+            />
+            <Route path="role/:RoleName" element={<RolePage />} />
+            <Route path="terminology" element={<Terminology />} />
+            <Route path="achievements" element={<Achievements />} />
+            <Route path="*" element={<Navigate to="games" />} />
+          </Routes>
+        </Card>
+      </Box>
     </>
   );
 }

@@ -10,12 +10,11 @@ module.exports = class WinIfRivalIsDead extends Card {
       priority: PRIORITY_WIN_CHECK_DEFAULT,
       againOnFinished: true,
       check: function (counts, winners, aliveCount, confirmedFinished) {
-        if (
-          confirmedFinished &&
-          this.player.alive &&
-          this.data.rival &&
-          !this.data.rival.alive
-        ) {
+        let rivals = this.game
+          .alivePlayers()
+          .filter((p) => p.role.name == "Rival" && p != this.player);
+
+        if (confirmedFinished && this.player.alive && rivals.length <= 0) {
           winners.addPlayer(this.player, this.name);
         }
       },
@@ -32,24 +31,18 @@ module.exports = class WinIfRivalIsDead extends Card {
         }
 
         const eligibleRivals = this.game.players.filter(
-          (p) =>
-            p.alive &&
-            p != this.player &&
-            p.role.name === "Rival" &&
-            !p.role.data.rival
+          (p) => p.alive && p != this.player && p.role.name === "Rival"
         );
 
         if (eligibleRivals.length === 0) {
-          this.player.queueAlert("You cannot find a worthy Rival...");
+          this.player.queueAlert("You cannot find a worthy Rival…");
           this.player.setRole("Survivor");
           return;
         }
-
-        const chosenRival = Random.randArrayVal(eligibleRivals);
-        this.data.rival = chosenRival;
-        this.player.queueAlert(`${chosenRival.name} is your rival!`);
-        chosenRival.role.data.rival = this.player;
-        chosenRival.queueAlert(`${this.player.name} is your rival!`);
+      },
+      death: function (player, killer, deathType) {
+        if (player != this.data.rival) return;
+        this.data.deadRival = true;
       },
     };
   }

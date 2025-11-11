@@ -2,11 +2,13 @@ const express = require("express");
 const constants = require("../data/constants");
 const roleData = require("..//data/roles");
 const modifierData = require("../data/modifiers");
+const gameSettingData = require("../data/gamesettings");
 const logger = require("../modules/logging")(".");
 const router = express.Router();
 
 var condensedRoleData = { Modifiers: {} };
 var fullModifierData = {};
+var fullGameSettingData = {};
 
 for (let gameType in roleData) {
   condensedRoleData[gameType] = [];
@@ -15,6 +17,8 @@ for (let gameType in roleData) {
     condensedRoleData[gameType].push({
       name: roleName,
       alignment: roleData[gameType][roleName].alignment,
+      category: roleData[gameType][roleName].category,
+      tags: roleData[gameType][roleName].tags,
       featured: roleData[gameType][roleName].featured,
       newlyAdded: roleData[gameType][roleName].newlyAdded,
       recentlyUpdated: roleData[gameType][roleName].recentlyUpdated,
@@ -30,6 +34,12 @@ for (let game in constants.modifiers) {
 
 for (let gameType in modifierData) {
   fullModifierData[gameType] = Object.entries(modifierData[gameType]).map(
+    (v) => ({ name: v[0], ...v[1] })
+  );
+}
+
+for (let gameType in gameSettingData) {
+  fullGameSettingData[gameType] = Object.entries(gameSettingData[gameType]).map(
     (v) => ({ name: v[0], ...v[1] })
   );
 }
@@ -58,6 +68,16 @@ router.get("/modifiers", async function (req, res) {
   res.setHeader("Content-Type", "application/json");
   try {
     res.send(fullModifierData);
+  } catch (e) {
+    logger.error(e);
+    res.send([]);
+  }
+});
+
+router.get("/gamesettings", async function (req, res) {
+  res.setHeader("Content-Type", "application/json");
+  try {
+    res.send(fullGameSettingData);
   } catch (e) {
     logger.error(e);
     res.send([]);

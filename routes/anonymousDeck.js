@@ -109,7 +109,7 @@ router.post("/create", async function (req, res) {
       profile = new models.DeckProfile({
         id: id,
         name: `Profile ${i}`,
-        color: `#000000`,
+        color: `#FFFFFF`,
         deck: deck._id,
       });
       await profile.save();
@@ -482,6 +482,51 @@ router.get("/search", async function (req, res) {
   }
 });
 
+router.get("/popular", async function (req, res) {
+  res.setHeader("Content-Type", "application/json");
+  try {
+    var userId = await routeUtils.verifyLoggedIn(req, true);
+    var pageSize = 7;
+    var pageLimit = 15;
+    var start = ((Number(req.query.page) || 1) - 1) * pageSize;
+    var deckLimit = pageSize * pageLimit;
+
+    let canSeeDisabled = await routeUtils.verifyPermission(
+      userId,
+      "disableDeck"
+    );
+    let searchClause = {
+      name: { $regex: String(req.query.query), $options: "i" },
+    };
+    if (!canSeeDisabled) {
+      searchClause.disabled = false;
+    }
+
+    if (start < deckLimit) {
+      var decks = await models.AnonymousDeck.find({
+        disabled: false,
+      })
+        .limit(deckLimit)
+        .select("id name profiles");
+      var count = decks.length;
+      decks = decks.slice(start, start + pageSize);
+
+      res.send({
+        decks: decks,
+        pages:
+          Math.ceil(count / pageSize) + 1 <= pageLimit
+            ? Math.ceil(count / pageSize) + 1
+            : pageLimit,
+      });
+    } else {
+      res.send({ decks: [], pages: 0 });
+    }
+  } catch (e) {
+    logger.error(e);
+    res.send({ decks: [], pages: 0 });
+  }
+});
+
 router.get("/yours", async function (req, res) {
   res.setHeader("Content-Type", "application/json");
   try {
@@ -597,7 +642,7 @@ function verifyDeckProfiles(profiles) {
         `Profile name is too long: ${p.name.substring(
           0,
           constants.maxNameLengthInDeck
-        )}... (#${profileIndex})`,
+        )}… (#${profileIndex})`,
       ];
     }
 

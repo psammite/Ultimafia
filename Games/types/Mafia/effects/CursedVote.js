@@ -7,11 +7,12 @@ module.exports = class CursedVote extends Effect {
     this.curser = curser;
     this.target = target;
     this.lifespan = lifespan;
+    this.isMalicious = true;
 
     this.listeners = {
       vote: function (vote) {
         if (
-          vote.meeting.name === "Village" &&
+          vote.meeting.useVotingPower == true &&
           vote.voter === this.player &&
           vote.target === this.target.id
         ) {

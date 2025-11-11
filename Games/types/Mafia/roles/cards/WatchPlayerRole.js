@@ -1,4 +1,5 @@
 const { addArticle } = require("../../../../core/Utils");
+const Random = require("../../../../../lib/Random");
 const Card = require("../../Card");
 const {
   PRIORITY_INVESTIGATIVE_AFTER_RESOLVE_DEFAULT,
@@ -9,27 +10,23 @@ module.exports = class WatchPlayerRole extends Card {
     super(role);
 
     this.meetings = {
-      "Watch (no visit)": {
+      Watch: {
         states: ["Night"],
         flags: ["voting"],
         targets: { include: ["alive"], exclude: [] },
         action: {
-          labels: ["hidden", "investigate"],
-          priority: PRIORITY_INVESTIGATIVE_AFTER_RESOLVE_DEFAULT,
+          labels: ["investigate"],
+          priority: PRIORITY_INVESTIGATIVE_AFTER_RESOLVE_DEFAULT - 5,
           run: function () {
-            let visitors = this.getVisitors(this.target);
-            let visitorRoles = visitors.map((p) =>
-              addArticle(p.getRoleAppearance())
+            let info = this.game.createInformation(
+              "WatcherRoleInfo",
+              this.actor,
+              this.game,
+              this.target
             );
-            if (visitorRoles.length === 0) {
-              visitorRoles.push("no roles");
-            }
+            info.processInfo();
 
-            this.actor.queueAlert(
-              `:look: ${this.target.name} was visited by ${visitorRoles.join(
-                ", "
-              )} during the night.`
-            );
+            this.actor.queueAlert(`:watch: ${info.getInfoFormated()}`);
           },
         },
       },

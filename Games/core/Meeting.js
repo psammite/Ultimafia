@@ -3,9 +3,9 @@ const Message = require("./Message");
 const Quote = require("./Quote");
 const Random = require("../../lib/Random");
 const ArrayHash = require("./ArrayHash");
-// const Agora = require("./Agora");
 const constants = require("../../data/constants");
 const Player = require("./Player");
+const roleData = require("../../data/roles");
 
 module.exports = class Meeting {
   constructor(game, name) {
@@ -19,27 +19,38 @@ module.exports = class Meeting {
     this.speech = false;
     this.voting = false;
     this.instant = false;
+    this.instantButChangeable = false;
     this.anonymous = false;
     this.anonymousVotes = false;
     this.noUnvote = false;
     this.multi = false;
     this.multiSplit = false;
+    this.useVotingPower = false;
+    this.runOnNoOne = false;
     this.repeatable = false;
     this.includeNo = false;
     this.noRecord = false;
     this.liveJoin = false;
-    this.votesInvisible = game.setup.votesInvisible;
+    this.randomizeTieResults = false;
+    this.requireMajority = game.isMajorityVoting() && this.name == "Village";
+    this.votesInvisible = game.isHiddenVotes();
     this.mustAct = game.isMustAct() && this.name != "Village";
     this.mustCondemn = game.isMustCondemn() && this.name == "Village";
+    this.talkingDead = game.isTalkingDead() && this.name == "Village";
+    this.votingDead = game.isVotingDead() && this.name == "Village";
     this.noAct = game.isNoAct();
     this.noVeg = game.isNoVeg();
     this.multiActor = false;
     this.exclusive = false;
     this.hideAfterVote = false;
+    this.Important = false;
+    this.displayVoteCounter = false;
+    this.noOneDisplayName = null;
     /***/
-
+    this.role;
     this.inputType = "player";
     this.targets = { include: ["alive"], exclude: ["members"] };
+    this.AllRolesFilters = [];
     this.messages = [];
     this.members = new ArrayHash();
     this.votes = {};
@@ -50,6 +61,7 @@ module.exports = class Meeting {
     this.multiMin = 0;
     this.multiMax = 0;
     this.priority = 0;
+    this.item;
   }
 
   join(player, options) {
@@ -65,23 +77,32 @@ module.exports = class Meeting {
       leader: options.leader,
       voteWeight: options.voteWeight ?? 1,
       canVote:
-        options.canVote != false && (player.alive || !options.passiveDead),
+        options.canVote != false &&
+        (player.alive || !options.passiveDead || this.votingDead) &&
+        !player.exorcised,
       canUpdateVote:
         options.canUpdateVote != false &&
-        (player.alive || !options.passiveDead),
+        (player.alive || !options.passiveDead || this.votingDead) &&
+        !player.exorcised,
       canUnvote:
-        options.canUnvote != false && (player.alive || !options.passiveDead),
-      canTalk: options.canTalk != false && (player.alive || options.speakDead),
+        options.canUnvote != false &&
+        (player.alive || !options.passiveDead || this.votingDead) &&
+        !player.exorcised,
+      canTalk:
+        options.canTalk != false &&
+        (player.alive || options.speakDead || this.talkingDead) &&
+        !player.exorcised,
       canWhisper: options.canWhisper != false,
       visible:
-        options.visible != false && (player.alive || !options.passiveDead),
+        options.visible != false &&
+        (player.alive || !options.passiveDead || this.votingDead) &&
+        !player.exorcised,
       whileAlive: options.whileAlive != false,
       whileDead: options.whileDead,
       speechAbilities: options.speechAbilities || [],
       meetingName: options.meetingName,
       actionName: options.actionName,
       originalOptions: options,
-      // vcToken: this.game.voiceChat && Agora.generateToken(player.id, this.id),
     };
 
     this.members.push(member);
@@ -92,9 +113,19 @@ module.exports = class Meeting {
 
     if (options.targets) this.targets = options.targets;
 
+    if (options.AllRolesFilters) this.AllRolesFilters = options.AllRolesFilters;
+
     if (options.inputType) this.inputType = options.inputType;
     this.textOptions = options.textOptions;
     this.displayOptions = options.displayOptions;
+
+    if (options.displayVoteCounter !== undefined) {
+      this.displayVoteCounter = options.displayVoteCounter;
+    }
+
+    if (options.noOneDisplayName !== undefined) {
+      this.noOneDisplayName = options.noOneDisplayName;
+    }
 
     if (this.multi) {
       this.multiMin = options.multiMin;
@@ -109,7 +140,7 @@ module.exports = class Meeting {
       this.voteVersions[player.id] = { votes: {}, voteRecord: [] };
 
     if (
-      this.game.setup.whispers &&
+      this.game.isWhispers() &&
       this.name != "Pregame" &&
       // disable whispers for anonymous meetings that are not the village meeting
       !(this.anonymous && this.name != "Village") &&
@@ -120,6 +151,7 @@ module.exports = class Meeting {
         targets: { include: ["members"], exclude: ["self"] },
         targetType: "player",
         verb: "to",
+        whileDead: this.talkingDead,
       });
     }
 
@@ -204,6 +236,12 @@ module.exports = class Meeting {
     var member = this.members[playerId] || {};
     var votes = {};
     var voteRecord = [];
+    var isExcludeSelf =
+      this.targetsDescription &&
+      this.targetsDescription["exclude"] &&
+      this.targetsDescription["exclude"].includes("self");
+
+    var playerHasVoted = false;
 
     if (this.voting) {
       if (member.id) {
@@ -212,6 +250,10 @@ module.exports = class Meeting {
       } else {
         votes = this.votes;
         voteRecord = this.voteRecord;
+      }
+
+      if (playerId) {
+        playerHasVoted = Object.keys(votes).includes(playerId);
       }
 
       if (this.anonymous || this.anonymousVotes) {
@@ -233,6 +275,20 @@ module.exports = class Meeting {
       }
     }
 
+    // Workaround for being unable to properly exclude self from group meetings
+    var personalizedTargets;
+    if (Array.isArray(this.targets)) {
+      personalizedTargets = this.targets.slice();
+      if (isExcludeSelf) {
+        var indexOfSelf = personalizedTargets.indexOf(playerId);
+        if (indexOfSelf > -1) {
+          personalizedTargets.splice(indexOfSelf, 1);
+        }
+      }
+    } else {
+      personalizedTargets = this.targets;
+    }
+
     return {
       id: this.id,
       name: this.getName(member),
@@ -242,14 +298,18 @@ module.exports = class Meeting {
       speech: this.speech,
       voting: this.voting,
       instant: this.instant,
+      instantButChangeable: this.instantButChangeable,
       hideAfterVote: this.hideAfterVote,
+      displayVoteCounter: this.displayVoteCounter,
+      noOneDisplayName: this.noOneDisplayName,
       anonymous: this.anonymous,
       anonymousVotes: this.anonymousVotes,
       votesInvisible: this.votesInvisible,
       multi: this.multi,
       multiSplit: this.multiSplit,
+      useVotingPower: this.useVotingPower,
       noUnvote: this.noUnvote,
-      targets: this.targets,
+      targets: personalizedTargets,
       inputType: this.inputType,
       textOptions: this.textOptions,
       displayOptions: this.displayOptions || {},
@@ -262,9 +322,8 @@ module.exports = class Meeting {
       canTalk: member.canTalk,
       canWhisper: member.canWhisper,
       speechAbilities: this.getSpeechAbilityInfo(member),
-      // vcToken:
-      //   this.speech && !this.anonymous && member.canTalk && member.vcToken,
       amMember: member.id != null,
+      playerHasVoted: playerHasVoted,
     };
   }
 
@@ -328,10 +387,18 @@ module.exports = class Meeting {
         ) {
           this.targets.push("*");
         }
+        if (this.game.MagusPossible == true && !this.repeatable) {
+          this.targets.push("*magus");
+        }
       }
     } else if (this.inputType == "boolean") {
       if (!this.mustAct || this.includeNo) this.targets = ["Yes", "No"];
       else this.targets = ["Yes"];
+    } else if (this.inputType == "AllRoles") {
+      this.targets = this.getAllRolesTargets(
+        this.inputType,
+        this.members.length == 1 ? this.members.at(0).player : null
+      );
     }
 
     for (let member of this.members) {
@@ -387,6 +454,84 @@ module.exports = class Meeting {
     }
   }
 
+  getAllRolesTargets(targetType, self) {
+    if (targetType == "AllRoles") {
+      let temp = this.game.PossibleRoles.filter((r) => r);
+
+      if (this.AllRolesFilters.includes("AllOnSite")) {
+        let allRoles = Object.entries(roleData.Mafia)
+          .filter(
+            (m) => m[1].alignment != "Event" && !m[0].includes("Banished")
+          )
+          .map((r) => r[0]);
+        temp = temp.concat(allRoles);
+      }
+      if (this.AllRolesFilters.includes("addedRoles")) {
+        temp = temp.concat(this.game.AddedRoles);
+      }
+      if (this.AllRolesFilters.includes("InPlayOnly")) {
+        temp = [];
+        for (let player of this.game.players) {
+          temp.push(`${player.role.name}:${player.role.modifier}`);
+        }
+      }
+
+      for (let tag of this.AllRolesFilters.filter(
+        (t) => t != "AllOnSite" && t != "addedRoles" && t != "InPlayOnly"
+      )) {
+        switch (tag) {
+          case "self":
+            if (self) {
+              temp = temp.filter((r) => r != self.role.name);
+            }
+            break;
+          case "aligned":
+            if (self) {
+              temp = temp.filter(
+                (r) =>
+                  this.game.getRoleAlignment(r) ==
+                  this.game.getRoleAlignment(self.role.name)
+              );
+            }
+            break;
+          case "banished":
+            temp = temp.filter(
+              (r) =>
+                r.split(":")[1] &&
+                r.split(":")[1].toLowerCase().includes("banished")
+            );
+            break;
+          case "NoDemonic":
+            temp = temp.filter(
+              (r) =>
+                !(
+                  r.split(":")[1] &&
+                  r.split(":")[1].toLowerCase().includes("demonic")
+                )
+            );
+            break;
+          case "blacklist":
+            if (self && self.role.data.roleBlacklist) {
+              temp = temp.filter(
+                (r) => !self.role.data.roleBlacklist.includes(r.split(":")[0])
+              );
+              temp = temp.filter(
+                (r) => !self.role.data.roleBlacklist2.includes(r)
+              );
+            }
+            break;
+          default:
+        }
+      }
+
+      if ((!this.mustAct || temp.length <= 0) && !temp.includes("None")) {
+        temp.push("None");
+      }
+      temp = [...new Set(temp)];
+      return temp;
+    }
+  }
+
   parseTargetDefinitions(targets, targetType, players, self) {
     var includePlayer = {};
     var playerList = [];
@@ -407,6 +552,46 @@ module.exports = class Meeting {
             case "self":
               if (player == self) includePlayer[player.id] = include;
               break;
+            case "neighbors":
+              //this.game.alivePlayers().indexOf(self);
+              if (
+                this.game.alivePlayers().indexOf(player) ==
+                  (this.game.alivePlayers().indexOf(self) + 1) %
+                    players.length ||
+                this.game.alivePlayers().indexOf(player) ==
+                  (this.game.alivePlayers().indexOf(self) -
+                    1 +
+                    players.length) %
+                    players.length
+              ) {
+                includePlayer[player.id] = include;
+              } else if (
+                this.game.deadPlayers().indexOf(player) ==
+                  (this.game.deadPlayers().indexOf(self) + 1) %
+                    players.length ||
+                this.game.deadPlayers().indexOf(player) ==
+                  (this.game.deadPlayers().indexOf(self) - 1 + players.length) %
+                    players.length
+              ) {
+                includePlayer[player.id] = include;
+              }
+              break;
+            case "even":
+              //this.game.alivePlayers().indexOf(self);
+              if (this.game.alivePlayers().indexOf(player) % 2 == 0) {
+                includePlayer[player.id] = include;
+              } else if (this.game.deadPlayers().indexOf(player) % 2 == 0) {
+                includePlayer[player.id] = include;
+              }
+              break;
+            case "odd":
+              //this.game.alivePlayers().indexOf(self);
+              if (this.game.alivePlayers().indexOf(player) % 2 == 1) {
+                includePlayer[player.id] = include;
+              } else if (this.game.deadPlayers().indexOf(player) % 2 == 1) {
+                includePlayer[player.id] = include;
+              }
+              break;
             case "members":
               if (this.members[player.id]) includePlayer[player.id] = include;
               break;
@@ -415,6 +600,24 @@ module.exports = class Meeting {
               break;
             case "dead":
               if (!player.alive) includePlayer[player.id] = include;
+              break;
+            case "previous":
+              if (
+                self &&
+                self.role.data.LimitedLastNightVisits &&
+                self.role.data.LimitedLastNightVisits.includes(player)
+              ) {
+                includePlayer[player.id] = include;
+              }
+              break;
+            case "previousAll":
+              if (
+                self &&
+                self.role.data.LimitedAllVisits &&
+                self.role.data.LimitedAllVisits.includes(player)
+              ) {
+                includePlayer[player.id] = include;
+              }
               break;
             default:
               if (typeof tag == "function") {
@@ -449,6 +652,20 @@ module.exports = class Meeting {
           }
         }
       }
+      if (
+        self &&
+        this.game.Rooms &&
+        this.game.Rooms.length > 0 &&
+        self.hasItem("Room")
+      ) {
+        for (let room of this.game.Rooms) {
+          if (room.members.includes(self)) {
+            if (!room.members.includes(player)) {
+              includePlayer[player.id] = false;
+            }
+          }
+        }
+      }
     }
 
     for (let playerId in includePlayer) {
@@ -473,7 +690,7 @@ module.exports = class Meeting {
       !this.members[voter.id].canUpdateVote ||
       !this.members[voter.id].canVote ||
       !this.voting ||
-      (this.finished && !this.repeatable)
+      (this.finished && !this.repeatable && !this.instantButChangeable)
     ) {
       return false;
     }
@@ -513,8 +730,6 @@ module.exports = class Meeting {
       time: Date.now(),
     });
 
-    this.events.emit("vote", vote);
-
     for (let member of this.members) {
       if (!this.votesInvisible || member.id == voter.id) {
         let voteVersion = member.player.seeVote(vote);
@@ -543,6 +758,8 @@ module.exports = class Meeting {
     }
 
     if (this.game.isSpectatorMeeting(this)) this.game.spectatorsSeeVote(vote);
+
+    this.events.emit("vote", vote);
 
     this.checkReady();
 
@@ -635,30 +852,47 @@ module.exports = class Meeting {
 
     this.finished = true;
 
+    var isExcludeSelf =
+      this.targetsDescription &&
+      this.targetsDescription["exclude"] &&
+      this.targetsDescription["exclude"].includes("self");
     var count = {};
     var highest = { targets: [], votes: 1 };
     var finalTarget;
 
     if (!this.multi && !this.multiSplit) {
       // Count all votes
+      if (this.useVotingPower == true) {
+        this.events.emit("PreVotingPowers", this);
+      }
+      let totalVoteCount = 0;
       for (let voterId in this.votes) {
         let member = this.members[voterId];
         let target = this.votes[voterId] || "*";
 
         if (!target) continue;
 
+        // Workaround for being unable to properly exclude self from group meetings
+        if (isExcludeSelf && voterId === target) continue;
+
         if (!count[target]) count[target] = 0;
-
-        count[target] += member.voteWeight;
+        if (this.useVotingPower != true) {
+          count[target] += member.voteWeight;
+          totalVoteCount += member.voteWeight;
+        } else {
+          count[target] += member.player.getVotePower(this);
+          totalVoteCount += member.player.getVotePower(this);
+        }
       }
-
       // Determine target with the most votes (ignores zero votes)
       for (let target in count) {
         if (count[target] > highest.votes)
           highest = { targets: [target], votes: count[target] };
         else if (count[target] == highest.votes) highest.targets.push(target);
       }
-
+      if (this.useVotingPower == true) {
+        this.events.emit("PostVotingPowers", this, count, highest);
+      }
       if (highest.targets.length == 1) {
         //Winning vote
         if (
@@ -670,12 +904,22 @@ module.exports = class Meeting {
             finalTarget = highest.targets[0];
           else finalTarget = "No";
         } else finalTarget = highest.targets[0];
+
+        if (
+          this.requireMajority == true &&
+          highest.votes < Math.ceil(totalVoteCount / 2)
+        ) {
+          finalTarget = "*";
+        }
       } else {
         //Tie vote
         if (this.inputType == "boolean") finalTarget = "No";
         else if (this.inputType == "customBoolean")
           finalTarget = this.displayOptions.customBooleanNegativeReply;
-        else finalTarget = "*";
+        else if (!this.randomizeTieResults) finalTarget = "*";
+        else
+          finalTarget =
+            highest.targets[Math.floor(Math.random() * highest.targets.length)];
       }
     } else if (this.multiSplit) {
       var selections = Object.values(this.votes) || [];
@@ -705,7 +949,7 @@ module.exports = class Meeting {
             selections.indexOf("*") == -1)
         ) {
           const isKickEliminated =
-            this.actionName === "Village Vote" &&
+            this.actionName === "Vote to Condemn" &&
             this.finalTarget === member.id;
           if (!isKickEliminated) {
             this.game.vegPlayer(member.player);
@@ -718,7 +962,7 @@ module.exports = class Meeting {
     // Return if no action to take
     if (
       !finalTarget ||
-      finalTarget == "*" ||
+      (finalTarget == "*" && !this.runOnNoOne) ||
       (this.inputType == "boolean" && this.instant && !isVote)
     ) {
       if (this.instant && isVote) this.game.checkAllMeetingsReady();
@@ -726,21 +970,23 @@ module.exports = class Meeting {
       return;
     }
 
-    // Get player targeted
-    if (this.inputType == "player") {
-      if (!this.multi && !this.multiSplit)
-        finalTarget = this.game.players[finalTarget];
-      else finalTarget = finalTarget.map((target) => this.game.players[target]);
+    if (finalTarget != "*magus" && finalTarget != "*") {
+      // Get player targeted
+      if (this.inputType == "player") {
+        if (!this.multi && !this.multiSplit)
+          finalTarget = this.game.players[finalTarget];
+        else
+          finalTarget = finalTarget.map((target) => this.game.players[target]);
 
-      this.finalTarget = finalTarget;
+        this.finalTarget = finalTarget;
+      }
     }
-
     // Do the action
     var actor, actors;
 
-    if (!this.multiActor) actor = this.leader;
+    if (!this.multiActor) actor = this.leader();
     else {
-      actors = this.actors;
+      actors = this.actors();
       actor = actors[0];
     }
 
@@ -774,7 +1020,7 @@ module.exports = class Meeting {
 
     if (
       message.abilityName == "Whisper" &&
-      this.game.setup.whispers &&
+      this.game.isWhispers() &&
       this.name != "Pregame" &&
       !this.anonymous
     ) {
@@ -787,17 +1033,25 @@ module.exports = class Meeting {
 
       let leakChance = -1;
 
-      if (this.game.setup.leakPercentage > 0)
+      if (this.game.getWhisperLeakChance() > 0)
         leakChance = Random.randFloatRange(0, 100);
 
       if (message.forceLeak) {
-        leakChance = this.game.setup.leakPercentage;
+        leakChance = this.game.getWhisperLeakChance();
       }
       if (message.recipients.find((e) => e.hasEffect("Leak Whispers"))) {
-        leakChance = this.game.setup.leakPercentage;
+        leakChance = this.game.getWhisperLeakChance();
+      } else if (
+        message.recipients.find((e) => e.hasEffect("SpeakOnlyWhispers"))
+      ) {
+        leakChance = 0;
       }
 
-      if (leakChance > 0 && leakChance <= this.game.setup.leakPercentage)
+      if (message.recipients.find((e) => e.role && e.role.name == "Host")) {
+        leakChance = 0;
+      }
+
+      if (leakChance > 0 && leakChance <= this.game.getWhisperLeakChance())
         message.recipients = this.getPlayers();
     }
 
@@ -843,6 +1097,7 @@ module.exports = class Meeting {
       fromMeetingId: quote.fromMeetingId,
       fromState: quote.fromState,
       anonymous: this.anonymous,
+      messageContent: quote.messageContent,
     });
 
     quote.send();
@@ -917,12 +1172,12 @@ module.exports = class Meeting {
     return false;
   }
 
-  get leader() {
-    return this.actors[0];
-  }
+  leader = () => {
+    return this.actors()[0];
+  };
 
   // only people who voted for the final target are actors
-  get actors() {
+  actors = () => {
     var actors = Object.keys(this.votes)
       .filter((pId) => {
         if (!this.votes[pId] || this.votes[pId] === "*") {
@@ -950,5 +1205,5 @@ module.exports = class Meeting {
       .sort((a, b) => this.members[b].leader - this.members[a].leader)
       .map((pId) => this.game.getPlayer(pId));
     return actors;
-  }
+  };
 };

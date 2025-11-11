@@ -9,15 +9,27 @@ module.exports = class User {
     this.dev = props.dev;
     this.textColor = props.settings && props.settings.textColor;
     this.nameColor = props.settings && props.settings.nameColor;
+    this.customEmotes = props.settings && props.settings.customEmotes;
     this.birthday = props.birthday;
+    this.Protips = props.settings && props.settings.disableProTips;
     this.rankedCount = props.rankedCount;
     this.competitiveCount = props.competitiveCount;
     this.stats = props.stats || dbStats.allStats();
+    this.achievements = props.achievements || [];
+    this.availableStamps = props.availableStamps || [];
+    this.ownedStamps = props.ownedStamps || [];
+    if (props.dailyChallenges) {
+      this.dailyChallenges =
+        props.dailyChallenges.map((m) => m.split(":")) || [];
+    } else {
+      this.dailyChallenges = [];
+    }
     this.playedGame = props.playedGame;
     this.referrer = props.referrer;
     this.guestId = props.guestId;
     this.settings = props.settings;
     this.isTest = props.isTest;
+    this.vanityUrl = props.vanityUrl;
   }
 
   send(eventName, data) {

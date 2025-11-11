@@ -6,9 +6,10 @@ module.exports = class Baker extends Role {
     this.alignment = "Village";
     this.cards = [
       "VillageCore",
-      "WinWithVillage",
+      "WinWithFaction",
+      "MeetingFaction",
       "GiveBread",
-      "FamineStarter",
+      //"FamineStarter",
       "FamineImmune",
     ];
   }

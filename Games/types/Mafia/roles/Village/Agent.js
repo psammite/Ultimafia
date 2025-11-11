@@ -5,9 +5,34 @@ module.exports = class Agent extends Role {
     super("Agent", player, data);
 
     this.alignment = "Village";
-    this.cards = ["VillageCore", "WinWithVillage", "ContactByRole"];
+    this.cards = [
+      "VillageCore",
+      "WinWithFaction",
+      "MeetingFaction",
+      "ContactByRole",
+    ];
     this.meetingMods = {
       Village: {
+        speechAbilities: [
+          {
+            name: "Contact",
+            targetsDescription: { include: ["all"], exclude: ["Village"] },
+            targetType: "role",
+            verb: "",
+          },
+        ],
+      },
+      "Room 1": {
+        speechAbilities: [
+          {
+            name: "Contact",
+            targetsDescription: { include: ["all"], exclude: ["Village"] },
+            targetType: "role",
+            verb: "",
+          },
+        ],
+      },
+      "Room 2": {
         speechAbilities: [
           {
             name: "Contact",

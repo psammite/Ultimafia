@@ -1,4 +1,5 @@
 const Card = require("../../Card");
+const Random = require("../../../../../lib/Random");
 const { PRIORITY_SUNSET_DEFAULT } = require("../../const/Priority");
 
 module.exports = class CondemnReveal extends Card {
@@ -7,7 +8,7 @@ module.exports = class CondemnReveal extends Card {
 
     this.meetings = {
       "Reveal Role": {
-        states: ["Sunset"],
+        states: ["Dusk"],
         flags: ["voting"],
         shouldMeet: function () {
           for (let action of this.game.actions[0])
@@ -20,7 +21,17 @@ module.exports = class CondemnReveal extends Card {
           labels: ["reveal"],
           priority: PRIORITY_SUNSET_DEFAULT,
           run: function () {
-            this.target.role.revealToAll();
+            let info = this.game.createInformation(
+              "RevealInfo",
+              this.actor,
+              this.game,
+              this.target,
+              null,
+              "Faction"
+            );
+            info.processInfo();
+            info.getInfoRaw();
+            //this.target.role.revealToAll();
           },
         },
       },
@@ -30,13 +41,18 @@ module.exports = class CondemnReveal extends Card {
         type: "delayActions",
         delayActions: true,
       },
+      /*
       Overturn: {
+        type: "delayActions",
+        delayActions: true,
+      },
+      Court: {
         type: "delayActions",
         delayActions: true,
       },
       Sunset: {
         type: "add",
-        index: 5,
+        index: 6,
         length: 1000 * 30,
         shouldSkip: function () {
           for (let action of this.game.actions[0])
@@ -46,6 +62,7 @@ module.exports = class CondemnReveal extends Card {
           return true;
         },
       },
+      */
     };
   }
 };

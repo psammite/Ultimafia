@@ -1,5 +1,5 @@
 const Card = require("../../Card");
-
+const { PRIORITY_CONVERT_DEFAULT } = require("../../const/Priority");
 module.exports = class GuessAdversaryConvert extends Card {
   constructor(role) {
     super(role);
@@ -9,19 +9,17 @@ module.exports = class GuessAdversaryConvert extends Card {
         states: ["Night"],
         flags: ["voting"],
         action: {
+          role: this.role,
           labels: ["Convert"],
+          priority: PRIORITY_CONVERT_DEFAULT,
           run: function () {
-            if (this.actor.role.roleToGuess.isArray) {
-              if (roleToGuess.indexOf(this.target.role.name) < 0) {
-                this.cancel();
-                return;
+            if (this.role.roleToGuess == null) return;
+            for (let x = 0; x < this.role.roleToGuess.length; x++) {
+              if (this.target.role.name == this.role.roleToGuess[x]) {
+                if (this.dominates())
+                  this.target.setRole("Cultist", this.actor);
               }
-            } else if (this.target.role.name != this.actor.role.roleToGuess) {
-              this.cancel();
-              return;
             }
-
-            if (this.dominates()) this.target.setRole("Cultist", this.actor);
           },
         },
       },

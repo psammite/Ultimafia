@@ -1,6 +1,6 @@
 const Card = require("../../Card");
 const Action = require("../../Action");
-const { PRIORITY_ITEM_GIVER_DEFAULT } = require("../../const/Priority");
+const { PRIORITY_ITEM_GIVER_EARLY } = require("../../const/Priority");
 
 module.exports = class GetGunIfTargetDies extends Card {
   constructor(role) {
@@ -11,9 +11,10 @@ module.exports = class GetGunIfTargetDies extends Card {
         states: ["Night"],
         flags: ["voting"],
         action: {
-          priority: PRIORITY_ITEM_GIVER_DEFAULT,
+          role: this.role,
+          priority: PRIORITY_ITEM_GIVER_EARLY,
           run: function () {
-            this.actor.role.avengeTarget = this.target;
+            this.role.avengeTarget = this.target;
           },
         },
       },

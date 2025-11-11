@@ -1,6 +1,23 @@
 var mongoose = require("mongoose");
 var stats = require("./stats");
 
+const accessibilityThemeValues = ["", "Higher Contrast"];
+
+const anonymousDeck = new mongoose.Schema({
+  id: { type: String, index: true },
+  name: { type: String, index: true },
+  creator: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
+  profiles: [{ type: mongoose.Schema.Types.ObjectId, ref: "DeckProfile" }],
+  disabled: { type: Boolean, default: 0 },
+  featured: { type: Boolean, index: true },
+});
+
+const skillRating = new mongoose.Schema({
+  // See: https://www.npmjs.com/package/openskill
+  mu: { type: Number }, // mean
+  sigma: { type: Number }, // deviation
+});
+
 var schemas = {
   User: new mongoose.Schema({
     id: { type: String, index: true },
@@ -8,7 +25,14 @@ var schemas = {
     ip: [{ type: String, index: true }],
     email: [{ type: String, index: true }],
     birthday: Date,
+    pronouns: {
+      type: String,
+      default: "",
+    },
     fbUid: String,
+    discordId: String,
+    discordName: String,
+    discordUsername: String,
     avatar: Boolean,
     banner: Boolean,
     bio: {
@@ -17,24 +41,43 @@ var schemas = {
         "Click to edit your bio (ex. age, gender, location, interests, experience playing mafia)",
     },
     settings: {
-      showDiscord: { type: Boolean, default: false },
-      showTwitch: { type: Boolean, default: false },
-      showSteam: { type: Boolean, default: false },
+      accessibilityTheme: {
+        type: String,
+        default: "",
+        validate: {
+          validator: (value) => accessibilityThemeValues.includes(value),
+          message: ({ value }) =>
+            `Invalid accessibilityTheme value "${value}. You must use one of: ${accessibilityThemeValues.join(
+              ", "
+            )}"`,
+        },
+      },
       backgroundColor: String,
       bannerFormat: String,
+      avatarShape: { type: String, default: "circle" },
+      iconFilter: { type: String, default: "none" },
+      customPrimaryColor: { type: String, default: "none" },
       textColor: String,
+      warnTextColor: String,
       ignoreTextColor: { type: Boolean, default: false },
       nameColor: String,
+      warnNameColor: String,
       onlyFriendDMs: { type: Boolean, default: false },
       disablePg13Censor: { type: Boolean, default: false },
       disableAllCensors: { type: Boolean, default: false },
       hideDeleted: Boolean,
-      roleIconScheme: { type: String, default: "vivid" },
-      siteColorScheme: { type: String, default: "auto" },
+      fontSize: { type: String, default: "system" },
+      siteColorScheme: { type: String, default: "dark" },
+      disableProTips: { type: Boolean, default: false },
+      expHighDpiCorrection: { type: Boolean, default: false },
+      roleSkins: String,
       autoplay: { type: Boolean, default: false },
       youtube: String,
       hideStatistics: { type: Boolean, default: false },
+      hideKarma: { type: Boolean, default: false },
+      hidePointsNegative: { type: Boolean, default: true },
       deathMessage: String,
+      vanityUrl: { type: String, default: "" },
     },
     accounts: {
       discord: String,
@@ -52,6 +95,9 @@ var schemas = {
     anonymousDecks: [
       { type: mongoose.Schema.Types.ObjectId, ref: "AnonymousDeck" },
     ],
+    customEmotes: [
+      { type: mongoose.Schema.Types.ObjectId, ref: "CustomEmote" },
+    ],
     games: [{ type: mongoose.Schema.Types.ObjectId, ref: "Game" }],
     globalNotifs: [
       { type: mongoose.Schema.Types.ObjectId, ref: "Notification" },
@@ -60,6 +106,9 @@ var schemas = {
     coins: { type: Number, default: 0 },
     itemsOwned: {
       customProfile: { type: Number, default: 0 },
+      avatarShape: { type: Number, default: 0 },
+      iconFilter: { type: Number, default: 0 },
+      customPrimaryColor: { type: Number, default: 0 },
       nameChange: { type: Number, default: 1 },
       emotes: { type: Number, default: 0 },
       threeCharName: { type: Number, default: 0 },
@@ -69,13 +118,30 @@ var schemas = {
       deathMessageEnabled: { type: Number, default: 0 },
       deathMessageChange: { type: Number, default: 0 },
       anonymousDeck: { type: Number, default: 0 },
+      customEmotes: { type: Number, default: 0 },
+      customEmotesExtra: { type: Number, default: 0 },
+      archivedGames: { type: Number, default: 0 },
+      archivedGamesMax: { type: Number, default: 0 },
+      bonusRedHearts: { type: Number, default: 0 },
+      vanityUrl: { type: Number, default: 0 },
     },
     stats: {},
-    rankedPoints: { type: Number, default: 0 },
-    competitivePoints: { type: Number, default: 0 },
-    nameChanged: false,
-    bdayChanged: false,
-    playedGame: false,
+    winRate: { type: Number, default: 0 },
+    achievements: [],
+    achievementCount: { type: Number, default: 0 },
+    ownedStamps: [],
+    availableStamps: [],
+    redHearts: { type: Number, default: 0 },
+    goldHearts: { type: Number, default: 0 },
+    kudos: { type: Number, default: 0 },
+    karma: { type: Number, default: 0 },
+    points: { type: Number, default: 0 },
+    pointsNegative: { type: Number, default: 0 },
+    dailyChallenges: [String],
+    dailyChallengesCompleted: { type: Number, default: 0 },
+    nameChanged: { type: Boolean, default: false },
+    bdayChanged: { type: Boolean, default: false },
+    playedGame: { type: Boolean, default: false },
     referrer: String,
     transactions: [Number],
     deleted: { type: Boolean, default: false },
@@ -87,51 +153,77 @@ var schemas = {
     lastModified: Date,
     session: mongoose.Schema.Types.Mixed,
   }),
-  Setup: new mongoose.Schema({
-    id: { type: String, index: true },
-    hash: { type: String, index: true },
-    name: { type: String, index: true },
-    gameType: { type: String, index: true },
-    creator: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
-    closed: Boolean,
-    unique: Boolean,
-    uniqueWithoutModifier: Boolean,
-    useRoleGroups: Boolean,
-    roleGroupSizes: [Number],
-    roles: String,
-    count: { type: Map, of: Number },
-    total: Number,
-    startState: { type: String, default: "Night" },
-    whispers: Boolean,
-    leakPercentage: Number,
-    dawn: Boolean,
-    lastWill: Boolean,
-    mustAct: Boolean,
-    mustCondemn: Boolean,
-    noReveal: Boolean,
-    votesInvisible: Boolean,
-    swapAmt: Number,
-    roundAmt: Number,
-    firstTeamSize: Number,
-    lastTeamSize: Number,
-    numMissions: Number,
-    teamFailLimit: Number,
-    excessRoles: Number,
-    favorites: Number,
-    featured: { type: Boolean, index: true },
-    ranked: { type: Boolean, default: false },
-    competitive: { type: Boolean, default: false },
-    played: { type: Number, index: true },
+  Setup: new mongoose.Schema(
+    {
+      id: { type: String, index: true },
+      hash: { type: String, index: true },
+      name: { type: String, index: true },
+      gameType: { type: String, index: true },
+      creator: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        index: true,
+      },
+      closed: Boolean,
+      unique: Boolean,
+      uniqueWithoutModifier: Boolean,
+      useRoleGroups: Boolean,
+      roleGroupSizes: [Number],
+      roles: String,
+      count: { type: Map, of: Number },
+      total: Number,
+      gameSettings: { type: mongoose.Mixed, default: {} },
+      startState: { type: String, default: "Night" },
+      gameStartPrompt: { type: String, default: undefined },
+      EventsPerNight: Number,
+      noDeathLimit: Number,
+      ForceMustAct: Boolean,
+      GameEndEvent: { type: String, default: "Meteor" },
+      swapAmt: Number,
+      roundAmt: Number,
+      firstTeamSize: Number,
+      lastTeamSize: Number,
+      numMissions: Number,
+      teamFailLimit: Number,
+      excessRoles: Number,
+      favorites: Number,
+      version: { type: Number, default: 0 },
+      featured: { type: Boolean, index: true },
+      ranked: { type: Boolean, default: false },
+      competitive: { type: Boolean, default: false },
+      played: { type: Number, index: true },
+      rolePlays: {},
+      roleWins: {},
+      factionRatings: [
+        {
+          factionName: { type: String },
+          skillRating: skillRating,
+          elo: { type: Number },
+        },
+      ],
+    },
+    { minimize: false }
+  ),
+  SetupVersion: new mongoose.Schema({
+    version: { type: Number, index: true },
+    setup: { type: mongoose.Schema.Types.ObjectId, ref: "Setup", index: true },
+    timestamp: { type: Date, default: Date.now },
+    changelog: { type: String, default: "" },
+    manifest: { type: String, default: "" },
+    played: { type: Number, default: 0 },
     rolePlays: {},
     roleWins: {},
+    alignmentPlays: {},
+    alignmentWins: {},
+    dayCountWins: {},
   }),
-  AnonymousDeck: new mongoose.Schema({
+  AnonymousDeck: anonymousDeck,
+  CustomEmote: new mongoose.Schema({
     id: { type: String, index: true },
     name: { type: String, index: true },
     creator: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
-    profiles: [{ type: mongoose.Schema.Types.ObjectId, ref: "DeckProfile" }],
-    disabled: { type: Boolean, default: 0 },
-    featured: { type: Boolean, index: true },
+    extension: String,
+    deleted: { type: Boolean, default: false },
   }),
   DeckProfile: new mongoose.Schema({
     id: { type: String, index: true },
@@ -144,13 +236,26 @@ var schemas = {
   Game: new mongoose.Schema({
     id: { type: String, index: true },
     type: String,
-    lobby: { type: String, default: "Mafia" },
+    lobby: { type: String, default: "Main" },
+    lobbyName: { type: String, default: "" },
     setup: { type: mongoose.Schema.Types.ObjectId, ref: "Setup" },
     users: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     players: [String],
     left: [String],
     names: [String],
     winners: [String],
+    winnersInfo: {
+      players: {
+        type: [{ type: String }],
+        default: [],
+      },
+      groups: {
+        type: [{ type: String }],
+        default: [],
+      },
+    },
+    playerIdMap: { type: String, default: "{}" },
+    playerAlignmentMap: { type: String, default: "{}" },
     history: String,
     startTime: Number,
     endTime: { type: Number, index: true },
@@ -159,17 +264,28 @@ var schemas = {
     private: Boolean,
     guests: Boolean,
     spectating: Boolean,
-    voiceChat: Boolean,
     readyCheck: Boolean,
     noVeg: Boolean,
     stateLengths: { type: Map, of: Number },
     gameTypeOptions: String,
     broken: Boolean,
+    kudosReceiver: { type: String, default: "" },
     anonymousGame: Boolean,
-    anonymousDeck: {
+    // This is a mongoose subdocument. It won't change if the anonyonous deck that the game was started with changes.
+    anonymousDeck: [anonymousDeck],
+  }),
+  ArchivedGame: new mongoose.Schema({
+    user: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "AnonymousDeck",
+      ref: "User",
+      index: true,
     },
+    game: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Game",
+      index: true,
+    },
+    description: { type: String, default: "" },
   }),
   ForumCategory: new mongoose.Schema({
     id: { type: String, index: true },
@@ -215,6 +331,7 @@ var schemas = {
     pinned: { type: Boolean, default: false, index: true },
     locked: { type: Boolean, default: false },
     replyNotify: { type: Boolean, default: true },
+    subscribers: [String], // Array of user IDs subscribed to this thread
     deleted: { type: Boolean, default: false },
     pending: { type: Boolean, default: false },
   }),
@@ -237,6 +354,17 @@ var schemas = {
     {
       voter: { type: String, index: true },
       item: { type: String, index: true },
+      direction: Number,
+    },
+    {
+      toObject: { virtuals: true },
+      toJSON: { virtuals: true },
+    }
+  ),
+  KarmaVote: new mongoose.Schema(
+    {
+      voterId: { type: String, index: true },
+      targetId: { type: String, index: true },
       direction: Number,
     },
     {
@@ -291,6 +419,8 @@ var schemas = {
     voteCount: { type: Number, default: 0 },
     deleted: { type: Boolean, default: false },
     pending: { type: Boolean, default: false },
+    board: { type: mongoose.Schema.Types.ObjectId, ref: "ForumBoard" },
+    thread: { type: mongoose.Schema.Types.ObjectId, ref: "ForumThread" },
   }),
   Notification: new mongoose.Schema({
     id: { type: String, index: true },
@@ -302,6 +432,7 @@ var schemas = {
     date: Number,
     icon: String,
     link: String,
+    read: { type: Boolean, default: false, index: true },
   }),
   Friend: new mongoose.Schema(
     {
@@ -318,6 +449,56 @@ var schemas = {
     {
       userId: { type: String, index: true },
       targetId: String,
+    },
+    {
+      toObject: { virtuals: true },
+      toJSON: { virtuals: true },
+    }
+  ),
+  DocSave: new mongoose.Schema(
+    {
+      userId: { type: String, index: true },
+      saverId: String,
+    },
+    {
+      toObject: { virtuals: true },
+      toJSON: { virtuals: true },
+    }
+  ),
+  Love: new mongoose.Schema(
+    {
+      userId: { type: String, index: true },
+      loveId: String,
+      type: String,
+    },
+    {
+      toObject: { virtuals: true },
+      toJSON: { virtuals: true },
+    }
+  ),
+  LoveRequest: new mongoose.Schema(
+    {
+      userId: { type: String, index: true },
+      targetId: String,
+      type: String,
+    },
+    {
+      toObject: { virtuals: true },
+      toJSON: { virtuals: true },
+    }
+  ),
+  Trophy: new mongoose.Schema(
+    {
+      id: { type: String, index: true },
+      name: { type: String, required: true },
+      ownerId: { type: String, index: true, required: true },
+      owner: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        index: true,
+      },
+      createdAt: { type: Date, default: Date.now, index: true },
+      createdBy: { type: String },
     },
     {
       toObject: { virtuals: true },
@@ -383,17 +564,61 @@ var schemas = {
     image: String,
     creator: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   }),
-  BlockedName: new mongoose.Schema({
-    name: { type: String, index: true },
-  }),
   Restart: new mongoose.Schema({
     when: Number,
+  }),
+  HeartRefresh: new mongoose.Schema({
+    userId: { type: String, index: true },
+    when: { type: Number, index: true },
+    type: { type: String, index: true },
+  }),
+  DailyChallengeRefresh: new mongoose.Schema({
+    when: { type: Number, index: true },
+  }),
+  LeavePenalty: new mongoose.Schema({
+    userId: { type: String, index: true },
+    expiresOn: { type: Number, index: true },
+    canPlayAfter: { type: Number },
+    level: { type: Number, default: 0 },
+  }),
+  Poll: new mongoose.Schema({
+    id: { type: String, index: true },
+    lobby: { type: String, index: true },
+    threadId: { type: String, index: true },
+    title: String,
+    question: String,
+    options: [String],
+    creator: { type: String, index: true },
+    created: { type: Number, index: true },
+    completed: { type: Boolean, default: false, index: true },
+    completedAt: { type: Number, index: true },
+    expiresAt: { type: Number, index: true },
+  }),
+  PollVote: new mongoose.Schema({
+    pollId: { type: String, index: true },
+    userId: { type: String, index: true },
+    optionIndex: { type: Number, index: true },
+    votedAt: { type: Number, index: true },
   }),
 };
 
 schemas.ForumVote.virtual("user", {
   ref: "User",
   localField: "voter",
+  foreignField: "id",
+  justOne: true,
+});
+
+schemas.KarmaVote.virtual("voter", {
+  ref: "User",
+  localField: "voterId",
+  foreignField: "id",
+  justOne: true,
+});
+
+schemas.KarmaVote.virtual("target", {
+  ref: "User",
+  localField: "targetId",
   foreignField: "id",
   justOne: true,
 });
@@ -453,6 +678,48 @@ schemas.FriendRequest.virtual("target", {
   justOne: true,
 });
 
+schemas.DocSave.virtual("saved", {
+  ref: "User",
+  localField: "savedId",
+  foreignField: "id",
+  justOne: true,
+});
+
+schemas.DocSave.virtual("user", {
+  ref: "User",
+  localField: "userId",
+  foreignField: "id",
+  justOne: true,
+});
+
+schemas.Love.virtual("user", {
+  ref: "User",
+  localField: "userId",
+  foreignField: "id",
+  justOne: true,
+});
+
+schemas.Love.virtual("love", {
+  ref: "User",
+  localField: "loveId",
+  foreignField: "id",
+  justOne: true,
+});
+
+schemas.LoveRequest.virtual("user", {
+  ref: "User",
+  localField: "userId",
+  foreignField: "id",
+  justOne: true,
+});
+
+schemas.LoveRequest.virtual("target", {
+  ref: "User",
+  localField: "targetId",
+  foreignField: "id",
+  justOne: true,
+});
+
 schemas.ModAction.virtual("mod", {
   ref: "User",
   localField: "modId",
@@ -477,6 +744,46 @@ schemas.Ban.virtual("user", {
 schemas.Ban.virtual("mod", {
   ref: "User",
   localField: "modId",
+  foreignField: "id",
+  justOne: true,
+});
+
+// VanityUrl schema for custom user URLs
+schemas.VanityUrl = new mongoose.Schema({
+  url: {
+    type: String,
+    required: true,
+    unique: true,
+    index: true,
+    minlength: 1,
+    maxlength: 20,
+    match: /^[a-zA-Z0-9-]+$/,
+  },
+  userId: {
+    type: String,
+    required: true,
+    index: true,
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+// Update the updatedAt field on save
+schemas.VanityUrl.pre("save", function (next) {
+  this.updatedAt = Date.now();
+  next();
+});
+
+// Virtual to populate user data
+schemas.VanityUrl.virtual("user", {
+  ref: "User",
+  localField: "userId",
   foreignField: "id",
   justOne: true,
 });

@@ -1,11 +1,15 @@
 const express = require("express");
 const shortid = require("shortid");
 const constants = require("../data/constants");
+const DailyChallengeData = require("../data/DailyChallenge");
+const roleData = require("../data/roles");
+const Random = require("../lib/Random");
 const models = require("../db/models");
 const routeUtils = require("./utils");
 const redis = require("../modules/redis");
 const gameLoadBalancer = require("../modules/gameLoadBalancer");
 const logger = require("../modules/logging")(".");
+const { rating, rate, ordinal, predictWin } = require("openskill");
 const router = express.Router();
 
 router.get("/groups", async function (req, res) {
@@ -20,7 +24,9 @@ router.get("/groups", async function (req, res) {
       group.members = await models.InGroup.find({ group: group._id })
         .select("user")
         .populate("user", "id name avatar -_id");
-      group.members = group.members.map((member) => member.toJSON().user);
+      group.members = group.members
+        .map((member) => member.toJSON().user)
+        .filter((member) => member !== null);
 
       for (let member of group.members)
         member.status = await redis.getUserStatus(member.id);
@@ -393,18 +399,24 @@ router.post("/removeFromGroup", async function (req, res) {
   }
 });
 
-router.post("/forumBan", async (req, res) => {
+// Unified ban endpoint
+router.post("/ban", async (req, res) => {
   try {
     var userId = await routeUtils.verifyLoggedIn(req);
     var userIdToBan = String(req.body.userId);
     var lengthStr = String(req.body.length);
-    var perm = "forumBan";
+    var banType = String(req.body.banType);
+    var perm = "ban";
     var banRank = await redis.getUserRank(userIdToBan);
 
-    if (banRank == null) {
+    if (banRank == null && banType !== "site") {
       res.status(500);
       res.send("User does not exist.");
       return;
+    }
+
+    if (banType === "site") {
+      banRank = banRank || 0;
     }
 
     if (!(await routeUtils.verifyPermission(res, userId, perm, banRank + 1)))
@@ -426,259 +438,78 @@ router.post("/forumBan", async (req, res) => {
       return;
     }
 
-    await routeUtils.banUser(
-      userIdToBan,
-      length,
-      ["vote", "createThread", "postReply", "deleteOwnPost", "editPost"],
-      "forum",
-      userId
-    );
+    const banExpires = new Date(Date.now() + length);
+    const banTypeLabels = {
+      forum: "forum",
+      chat: "chat",
+      game: "game",
+      ranked: "ranked",
+      competitive: "competitive",
+      site: "site",
+    };
 
-    await routeUtils.createNotification(
-      {
-        content: `You have been banned from the forums for ${routeUtils.timeDisplay(
-          length
-        )}.`,
-        icon: "ban",
-      },
-      [userIdToBan]
-    );
+    const banPermissions = {
+      forum: ["vote", "createThread", "postReply", "deleteOwnPost", "editPost"],
+      chat: ["publicChat", "privateChat"],
+      game: ["playGame"],
+      ranked: ["playRanked"],
+      competitive: ["playCompetitive"],
+      site: ["signIn"],
+    };
 
-    routeUtils.createModAction(userId, "Forum Ban", [userIdToBan, lengthStr]);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error forum banning user.");
-  }
-});
+    const banDbTypes = {
+      forum: "forum",
+      chat: "chat",
+      game: "game",
+      ranked: "playRanked",
+      competitive: "playCompetitive",
+      site: "site",
+    };
 
-router.post("/chatBan", async (req, res) => {
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToBan = String(req.body.userId);
-    var lengthStr = String(req.body.length);
-    var perm = "chatBan";
-    var banRank = await redis.getUserRank(userIdToBan);
-
-    if (banRank == null) {
-      res.status(500);
-      res.send("User does not exist.");
-      return;
-    }
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm, banRank + 1)))
-      return;
-
-    length = routeUtils.parseTime(lengthStr);
-
-    if (length == null) {
-      res.status(500);
-      res.send(
-        "Invalid time string. Must have the format 'length unit', e.g. '1 hour'."
-      );
-      return;
-    }
-
-    if (length < 1000 * 60 * 60) {
-      res.status(500);
-      res.send("Minimum ban time is 1 hour.");
+    if (!banPermissions[banType]) {
+      res.status(400);
+      res.send("Invalid ban type.");
       return;
     }
 
     await routeUtils.banUser(
       userIdToBan,
       length,
-      ["publicChat", "privateChat"],
-      "chat",
+      banPermissions[banType],
+      banDbTypes[banType],
       userId
     );
 
+    if (banType === "site") {
+      await models.User.updateOne(
+        { id: userIdToBan },
+        { $set: { banned: true } }
+      ).exec();
+      await models.Session.deleteMany({
+        "session.user.id": userIdToBan,
+      }).exec();
+    }
+
     await routeUtils.createNotification(
       {
-        content: `You have been banned from chat for ${routeUtils.timeDisplay(
-          length
-        )}.`,
+        content: `You have received a violation. Your ${
+          banTypeLabels[banType]
+        } ban expires on ${banExpires.toLocaleString()}.`,
         icon: "ban",
       },
       [userIdToBan]
     );
 
-    routeUtils.createModAction(userId, "Chat Ban", [userIdToBan, lengthStr]);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error chat banning user.");
-  }
-});
+    const modActionNames = {
+      forum: "Forum Ban",
+      chat: "Chat Ban",
+      game: "Game Ban",
+      ranked: "Ranked Ban",
+      competitive: "Competitive Ban",
+      site: "Site Ban",
+    };
 
-router.post("/gameBan", async (req, res) => {
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToBan = String(req.body.userId);
-    var lengthStr = String(req.body.length);
-    var perm = "gameBan";
-    var banRank = await redis.getUserRank(userIdToBan);
-
-    if (banRank == null) {
-      res.status(500);
-      res.send("User does not exist.");
-      return;
-    }
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm, banRank + 1)))
-      return;
-
-    length = routeUtils.parseTime(lengthStr);
-
-    if (length == null) {
-      res.status(500);
-      res.send(
-        "Invalid time string. Must have the format 'length unit', e.g. '1 hour'."
-      );
-      return;
-    }
-
-    if (length < 1000 * 60 * 60) {
-      res.status(500);
-      res.send("Minimum ban time is 1 hour.");
-      return;
-    }
-
-    await routeUtils.banUser(userIdToBan, length, ["playGame"], "game", userId);
-
-    await routeUtils.createNotification(
-      {
-        content: `You have been banned from games for ${routeUtils.timeDisplay(
-          length
-        )}.`,
-        icon: "ban",
-      },
-      [userIdToBan]
-    );
-
-    routeUtils.createModAction(userId, "Game Ban", [userIdToBan, lengthStr]);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error game banning user.");
-  }
-});
-
-router.post("/rankedBan", async (req, res) => {
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToBan = String(req.body.userId);
-    var lengthStr = String(req.body.length);
-    var perm = "rankedBan";
-    var banRank = await redis.getUserRank(userIdToBan);
-
-    if (banRank == null) {
-      res.status(500);
-      res.send("User does not exist.");
-      return;
-    }
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm, banRank + 1)))
-      return;
-
-    length = routeUtils.parseTime(lengthStr);
-
-    if (length == null) {
-      res.status(500);
-      res.send(
-        "Invalid time string. Must have the format 'length unit', e.g. '1 hour'."
-      );
-      return;
-    }
-
-    if (length < 1000 * 60 * 60) {
-      res.status(500);
-      res.send("Minimum ban time is 1 hour.");
-      return;
-    }
-
-    await routeUtils.banUser(
-      userIdToBan,
-      length,
-      ["playRanked"],
-      "playRanked",
-      userId
-    );
-
-    await routeUtils.createNotification(
-      {
-        content: `You have been banned from playing ranked games for ${routeUtils.timeDisplay(
-          length
-        )}.`,
-        icon: "ban",
-      },
-      [userIdToBan]
-    );
-
-    routeUtils.createModAction(userId, "Ranked Ban", [userIdToBan, lengthStr]);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error ranked banning user.");
-  }
-});
-
-router.post("/competitiveBan", async (req, res) => {
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToBan = String(req.body.userId);
-    var lengthStr = String(req.body.length);
-    var perm = "competitiveBan";
-    var banRank = await redis.getUserRank(userIdToBan);
-
-    if (banRank == null) {
-      res.status(500);
-      res.send("User does not exist.");
-      return;
-    }
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm, banRank + 1)))
-      return;
-
-    length = routeUtils.parseTime(lengthStr);
-
-    if (length == null) {
-      res.status(500);
-      res.send(
-        "Invalid time string. Must have the format 'length unit', e.g. '1 hour'."
-      );
-      return;
-    }
-
-    if (length < 1000 * 60 * 60) {
-      res.status(500);
-      res.send("Minimum ban time is 1 hour.");
-      return;
-    }
-
-    await routeUtils.banUser(
-      userIdToBan,
-      length,
-      ["playCompetitive"],
-      "playCompetitive",
-      userId
-    );
-
-    await routeUtils.createNotification(
-      {
-        content: `You have been banned from playing competitive games for ${routeUtils.timeDisplay(
-          length
-        )}.`,
-        icon: "ban",
-      },
-      [userIdToBan]
-    );
-
-    routeUtils.createModAction(userId, "Competitive Ban", [
+    routeUtils.createModAction(userId, modActionNames[banType], [
       userIdToBan,
       lengthStr,
     ]);
@@ -686,51 +517,7 @@ router.post("/competitiveBan", async (req, res) => {
   } catch (e) {
     logger.error(e);
     res.status(500);
-    res.send("Error competitive banning user.");
-  }
-});
-
-router.post("/siteBan", async (req, res) => {
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToBan = String(req.body.userId);
-    var lengthStr = String(req.body.length);
-    var perm = "siteBan";
-    var banRank = (await redis.getUserRank(userIdToBan)) || 0;
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm, banRank + 1)))
-      return;
-
-    length = routeUtils.parseTime(lengthStr);
-
-    if (length == null) {
-      res.status(500);
-      res.send(
-        "Invalid time string. Must have the format 'length unit', e.g. '1 hour'."
-      );
-      return;
-    }
-
-    if (length < 1000 * 60 * 60) {
-      res.status(500);
-      res.send("Minimum ban time is 1 hour.");
-      return;
-    }
-
-    await routeUtils.banUser(userIdToBan, length, ["signIn"], "site", userId);
-
-    await models.User.updateOne(
-      { id: userIdToBan },
-      { $set: { banned: true } }
-    ).exec();
-    await models.Session.deleteMany({ "session.user.id": userIdToBan }).exec();
-
-    routeUtils.createModAction(userId, "Site Ban", [userIdToBan, lengthStr]);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error site banning user.");
+    res.send("Error banning user.");
   }
 });
 
@@ -763,11 +550,13 @@ router.post("/logout", async (req, res) => {
   }
 });
 
-router.post("/forumUnban", async (req, res) => {
+// Unified unban endpoint
+router.post("/unban", async (req, res) => {
   try {
     var userId = await routeUtils.verifyLoggedIn(req);
     var userIdToActOn = String(req.body.userId);
-    var perm = "forumUnban";
+    var banType = String(req.body.banType);
+    var perm = "unban";
     var rank = await redis.getUserRank(userIdToActOn);
 
     if (rank == null) {
@@ -779,183 +568,53 @@ router.post("/forumUnban", async (req, res) => {
     if (!(await routeUtils.verifyPermission(res, userId, perm, rank + 1)))
       return;
 
-    await models.Ban.deleteMany({
-      userId: userIdToActOn,
-      type: "forum",
-      auto: false,
-    }).exec();
-    await redis.cacheUserPermissions(userIdToActOn);
+    const banDbTypes = {
+      forum: "forum",
+      chat: "chat",
+      game: "game",
+      ranked: "playRanked",
+      competitive: "playCompetitive",
+      site: "site",
+    };
 
-    routeUtils.createModAction(userId, "Forum Unban", [userIdToActOn]);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error forum unbanning user.");
-  }
-});
-
-router.post("/chatUnban", async (req, res) => {
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToActOn = String(req.body.userId);
-    var perm = "chatUnban";
-    var rank = await redis.getUserRank(userIdToActOn);
-
-    if (rank == null) {
-      res.status(500);
-      res.send("User does not exist.");
+    if (!banDbTypes[banType]) {
+      res.status(400);
+      res.send("Invalid ban type.");
       return;
     }
 
-    if (!(await routeUtils.verifyPermission(res, userId, perm, rank + 1)))
-      return;
-
     await models.Ban.deleteMany({
       userId: userIdToActOn,
-      type: "chat",
+      type: banDbTypes[banType],
       auto: false,
     }).exec();
-    await redis.cacheUserPermissions(userIdToActOn);
 
-    routeUtils.createModAction(userId, "Chat Unban", [userIdToActOn]);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error chat unbanning user.");
-  }
-});
-
-router.post("/gameUnban", async (req, res) => {
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToActOn = String(req.body.userId);
-    var perm = "gameUnban";
-    var rank = await redis.getUserRank(userIdToActOn);
-
-    if (rank == null) {
-      res.status(500);
-      res.send("User does not exist.");
-      return;
+    if (banType === "site") {
+      await models.User.updateOne(
+        { id: userIdToActOn },
+        { $set: { banned: false } }
+      ).exec();
     }
 
-    if (!(await routeUtils.verifyPermission(res, userId, perm, rank + 1)))
-      return;
-
-    await models.Ban.deleteMany({
-      userId: userIdToActOn,
-      type: "game",
-      auto: false,
-    }).exec();
     await redis.cacheUserPermissions(userIdToActOn);
 
-    routeUtils.createModAction(userId, "Game Unban", [userIdToActOn]);
+    const modActionNames = {
+      forum: "Forum Unban",
+      chat: "Chat Unban",
+      game: "Game Unban",
+      ranked: "Ranked Unban",
+      competitive: "Competitive Unban",
+      site: "Site Unban",
+    };
+
+    routeUtils.createModAction(userId, modActionNames[banType], [
+      userIdToActOn,
+    ]);
     res.sendStatus(200);
   } catch (e) {
     logger.error(e);
     res.status(500);
-    res.send("Error game unbanning user.");
-  }
-});
-
-router.post("/rankedUnban", async (req, res) => {
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToActOn = String(req.body.userId);
-    var perm = "rankedUnban";
-    var rank = await redis.getUserRank(userIdToActOn);
-
-    if (rank == null) {
-      res.status(500);
-      res.send("User does not exist.");
-      return;
-    }
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm, rank + 1)))
-      return;
-
-    await models.Ban.deleteMany({
-      userId: userIdToActOn,
-      type: "playRanked",
-      auto: false,
-    }).exec();
-    await redis.cacheUserPermissions(userIdToActOn);
-
-    routeUtils.createModAction(userId, "Ranked Unban", [userIdToActOn]);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error ranked unbanning user.");
-  }
-});
-
-router.post("/competitiveUnban", async (req, res) => {
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToActOn = String(req.body.userId);
-    var perm = "competitiveUnban";
-    var rank = await redis.getUserRank(userIdToActOn);
-
-    if (rank == null) {
-      res.status(500);
-      res.send("User does not exist.");
-      return;
-    }
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm, rank + 1)))
-      return;
-
-    await models.Ban.deleteMany({
-      userId: userIdToActOn,
-      type: "playCompetitive",
-      auto: false,
-    }).exec();
-    await redis.cacheUserPermissions(userIdToActOn);
-
-    routeUtils.createModAction(userId, "Competitive Unban", [userIdToActOn]);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error competitive unbanning user.");
-  }
-});
-
-router.post("/siteUnban", async (req, res) => {
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToActOn = String(req.body.userId);
-    var perm = "siteUnban";
-    var rank = await redis.getUserRank(userIdToActOn);
-
-    if (rank == null) {
-      res.status(500);
-      res.send("User does not exist.");
-      return;
-    }
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm, rank + 1)))
-      return;
-
-    await models.Ban.deleteMany({
-      userId: userIdToActOn,
-      type: "site",
-      auto: false,
-    }).exec();
-    await models.User.updateOne(
-      { id: userIdToActOn },
-      { $set: { banned: false } }
-    ).exec();
-    await redis.cacheUserPermissions(userIdToActOn);
-
-    routeUtils.createModAction(userId, "Site Unban", [userIdToActOn]);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error site unbanning user.");
+    res.send("Error unbanning user.");
   }
 });
 
@@ -1005,6 +664,7 @@ router.post("/blacklist", async (req, res) => {
         "privateChat",
         "playGame",
         "editBio",
+        "editPronouns",
         "changeName",
       ],
       "ipFlag"
@@ -1030,6 +690,40 @@ router.post("/blacklist", async (req, res) => {
     logger.error(e);
     res.status(500);
     res.send("Error blacklisting user.");
+  }
+});
+
+router.get("/ips", async (req, res) => {
+  res.setHeader("Content-Type", "application/json");
+  try {
+    var userId = await routeUtils.verifyLoggedIn(req);
+    var userIdToActOn = String(req.query.userId);
+    var perm = "viewIPs";
+
+    if (!(await routeUtils.verifyPermission(res, userId, perm))) return;
+
+    var user = await models.User.findOne({
+      id: userIdToActOn /*, deleted: false*/,
+    }).select("ip");
+
+    if (!user) {
+      res.status(500);
+      res.send("User does not exist.");
+      return;
+    }
+    var response = user.toJSON();
+
+    for (var i = 0; i < response.ip.length; i++) {
+      response.ip[
+        i
+      ] = `<a target="_blank" rel="noopener noreferrer nofollow" href="https://www.ipqualityscore.com/free-ip-lookup-proxy-vpn-test/lookup/${response.ip[i]}">${response.ip[i]}</a>`;
+    }
+
+    res.send(response.ip);
+  } catch (e) {
+    logger.error(e);
+    res.status(500);
+    res.send("Error loading IPs.");
   }
 });
 
@@ -1149,175 +843,14 @@ router.post("/clearSetupName", async (req, res) => {
   }
 });
 
-router.post("/clearBio", async (req, res) => {
+// Unified route for clearing user content
+router.post("/clearUserContent", async (req, res) => {
   res.setHeader("Content-Type", "application/json");
   try {
     var userId = await routeUtils.verifyLoggedIn(req);
     var userIdToClear = String(req.body.userId);
-    var perm = "clearBio";
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm))) return;
-
-    await models.User.updateOne(
-      { id: userIdToClear },
-      { $set: { bio: "" } }
-    ).exec();
-
-    await redis.cacheUserInfo(userIdToClear, true);
-
-    routeUtils.createModAction(userId, "Clear Bio", [userIdToClear]);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error clearing bio.");
-  }
-});
-
-router.post("/clearVideo", async (req, res) => {
-  res.setHeader("Content-Type", "application/json");
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToClear = String(req.body.userId);
-    var perm = "clearBio";
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm))) return;
-
-    await models.User.updateOne(
-      { id: userIdToClear },
-      { $set: { settings: { youtube: "" } } }
-    ).exec();
-
-    await redis.cacheUserInfo(userIdToClear, true);
-
-    routeUtils.createModAction(userId, "Clear Video", [userIdToClear]);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error clearing video.");
-  }
-});
-
-router.post("/clearBirthday", async (req, res) => {
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToClear = String(req.body.userId);
-    var perm = "clearBio";
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm))) return;
-
-    await models.User.updateOne(
-      { id: userIdToClear },
-      {
-        $unset: { birthday: "" },
-        $set: { bdayChanged: false },
-      }
-    ).exec();
-
-    await redis.cacheUserInfo(userIdToClear, true);
-
-    routeUtils.createModAction(userId, "Clear Birthday", [userIdToClear]);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error clearing birthday.");
-  }
-});
-
-router.post("/clearAvi", async (req, res) => {
-  res.setHeader("Content-Type", "application/json");
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToClear = String(req.body.userId);
-    var perm = "clearAvi";
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm))) return;
-
-    await models.User.updateOne(
-      { id: userIdToClear },
-      { $set: { avatar: false } }
-    ).exec();
-
-    await redis.cacheUserInfo(userIdToClear, true);
-
-    routeUtils.createModAction(userId, "Clear Avatar", [userIdToClear]);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error clearing avatar.");
-  }
-});
-
-router.post("/clearAccountDisplay", async (req, res) => {
-  res.setHeader("Content-Type", "application/json");
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToClear = String(req.body.userId);
-    var perm = "clearAccountDisplay";
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm))) return;
-
-    await models.User.updateOne(
-      { id: userIdToClear },
-      {
-        $set: {
-          "settings.showDiscord": false,
-          "settings.showTwitch": false,
-          "settings.showGoogle": false,
-          "settings.showSteam": false,
-        },
-      }
-    ).exec();
-
-    await redis.cacheUserInfo(userIdToClear, true);
-
-    routeUtils.createModAction(userId, "Clear Accounts Display", [
-      userIdToClear,
-    ]);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error clearing account display.");
-  }
-});
-
-router.post("/clearName", async (req, res) => {
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToClear = String(req.body.userId);
-    var perm = "clearName";
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm))) return;
-
-    await models.User.updateOne(
-      { id: userIdToClear },
-      {
-        $set: {
-          name: routeUtils.nameGen().slice(0, constants.maxUserNameLength),
-        },
-      }
-    ).exec();
-
-    await redis.cacheUserInfo(userIdToClear, true);
-
-    routeUtils.createModAction(userId, "Clear Name", [userIdToClear]);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error clearing username.");
-  }
-});
-
-router.post("/clearAllContent", async (req, res) => {
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToClear = String(req.body.userId);
-    var perm = "clearAllUserContent";
+    var contentType = String(req.body.contentType);
+    var perm = "clearUserContent";
 
     if (!(await routeUtils.verifyPermission(res, userId, perm))) return;
 
@@ -1329,52 +862,211 @@ router.post("/clearAllContent", async (req, res) => {
       return;
     }
 
-    await models.User.updateOne(
-      { id: userIdToClear },
-      {
-        $set: {
-          name: routeUtils.nameGen().slice(0, constants.maxUserNameLength),
-          avatar: false,
-          bio: "",
-          "settings.showDiscord": false,
-          "settings.showTwitch": false,
-          "settings.showGoogle": false,
-          "settings.showSteam": false,
-        },
-      }
-    ).exec();
+    let modActionName = "";
+    let updateQuery = {};
+    let additionalOperations = [];
 
-    await models.Setup.updateMany(
-      { creator: user._id },
-      { $set: { name: "Unnamed setup" } }
-    ).exec();
+    switch (contentType) {
+      case "avatar":
+        updateQuery = { $set: { avatar: false } };
+        modActionName = "Clear Avatar";
+        break;
 
-    await models.ForumThread.updateMany(
-      { author: user._id },
-      { $set: { deleted: true } }
-    ).exec();
+      case "bio":
+        updateQuery = { $set: { bio: "" } };
+        modActionName = "Clear Bio";
+        break;
 
-    await models.ForumReply.updateMany(
-      { author: user._id },
-      { $set: { deleted: true } }
-    ).exec();
+      case "customEmotes":
+        updateQuery = { $set: { customEmotes: [] } };
+        modActionName = "Clear Custom Emotes";
+        additionalOperations.push(
+          models.CustomEmote.updateMany(
+            { creator: user._id },
+            { $set: { deleted: true } }
+          ).exec()
+        );
+        break;
 
-    await models.Comment.updateMany(
-      { author: user._id },
-      { $set: { deleted: true } }
-    ).exec();
+      case "name":
+        updateQuery = {
+          $set: {
+            name: routeUtils.nameGen().slice(0, constants.maxUserNameLength),
+          },
+        };
+        modActionName = "Clear Name";
+        break;
 
-    await models.ChatMessage.deleteMany({ senderId: userIdToClear }).exec();
+      case "vanityUrl":
+        updateQuery = { $unset: { "settings.vanityUrl": "" } };
+        modActionName = "Clear Vanity URL";
+        // Store the current vanity URL before deleting it
+        const vanityUrlToDelete = await models.VanityUrl.findOne({
+          userId: userIdToClear,
+        }).select("url -_id");
+        if (vanityUrlToDelete) {
+          // Cache the deleted vanity URL -> user ID mapping for 7 days
+          // This allows old links to still work temporarily
+          await redis.cacheDeletedVanityUrl(
+            vanityUrlToDelete.url,
+            userIdToClear
+          );
+        }
+        additionalOperations.push(
+          models.VanityUrl.deleteMany({ userId: userIdToClear }).exec()
+        );
+        break;
+
+      case "video":
+        updateQuery = { $unset: { "settings.youtube": "" } };
+        modActionName = "Clear Video";
+        break;
+
+      case "pronouns":
+        updateQuery = { $set: { pronouns: "" } };
+        modActionName = "Clear Pronouns";
+        break;
+
+      case "accountDisplay":
+        updateQuery = {};
+        modActionName = "Clear Account Display";
+        break;
+
+      case "all":
+        updateQuery = {
+          $set: {
+            name: routeUtils.nameGen().slice(0, constants.maxUserNameLength),
+            avatar: false,
+            bio: "",
+            customEmotes: [],
+          },
+        };
+        modActionName = "Clear All User Content";
+        additionalOperations.push(
+          models.CustomEmote.updateMany(
+            { creator: user._id },
+            { $set: { deleted: true } }
+          ).exec(),
+          models.Setup.updateMany(
+            { creator: user._id },
+            { $set: { name: "Unnamed setup" } }
+          ).exec(),
+          models.ForumThread.updateMany(
+            { author: user._id },
+            { $set: { deleted: true } }
+          ).exec(),
+          models.ForumReply.updateMany(
+            { author: user._id },
+            { $set: { deleted: true } }
+          ).exec(),
+          models.Comment.updateMany(
+            { author: user._id },
+            { $set: { deleted: true } }
+          ).exec(),
+          models.ChatMessage.deleteMany({ senderId: userIdToClear }).exec()
+        );
+        break;
+
+      default:
+        res.status(400);
+        res.send("Invalid content type.");
+        return;
+    }
+
+    // Execute the main update query
+    if (Object.keys(updateQuery).length > 0) {
+      await models.User.updateOne({ id: userIdToClear }, updateQuery).exec();
+    }
+
+    // Execute any additional operations
+    await Promise.all(additionalOperations);
+
     await redis.cacheUserInfo(userIdToClear, true);
 
-    routeUtils.createModAction(userId, "Clear All User Content", [
-      userIdToClear,
-    ]);
+    routeUtils.createModAction(userId, modActionName, [userIdToClear]);
     res.sendStatus(200);
   } catch (e) {
     logger.error(e);
     res.status(500);
-    res.send("Error clearing user's content.");
+    res.send("Error clearing user content.");
+  }
+});
+
+router.post("/awardTrophy", async (req, res) => {
+  res.setHeader("Content-Type", "application/json");
+  try {
+    var userId = await routeUtils.verifyLoggedIn(req);
+    var perm = "awardTrophy";
+
+    if (!(await routeUtils.verifyPermission(res, userId, perm))) return;
+
+    var userIdToAward = String(req.body.userId || "").trim();
+    var trophyName = String(req.body.name || "").trim();
+
+    if (!userIdToAward) {
+      res.status(400);
+      res.send("User is required.");
+      return;
+    }
+
+    if (!trophyName) {
+      res.status(400);
+      res.send("Trophy name is required.");
+      return;
+    }
+
+    if (trophyName.length > constants.maxTrophyNameLength) {
+      res.status(400);
+      res.send(
+        `Trophy name must be ${constants.maxTrophyNameLength} characters or fewer.`
+      );
+      return;
+    }
+
+    const userToAward = await models.User.findOne({
+      id: userIdToAward,
+      deleted: false,
+    }).select("_id id name");
+
+    if (!userToAward) {
+      res.status(404);
+      res.send("User does not exist.");
+      return;
+    }
+
+    const trophy = new models.Trophy({
+      id: shortid.generate(),
+      name: trophyName,
+      ownerId: userIdToAward,
+      owner: userToAward._id,
+      createdBy: userId,
+    });
+    await trophy.save();
+
+    await routeUtils.createNotification(
+      {
+        content: `You have been awarded the "${trophyName}" trophy!`,
+        icon: "fas fa-trophy",
+        link: `/user/${userIdToAward}`,
+      },
+      [userIdToAward]
+    );
+
+    routeUtils.createModAction(userId, "Award Trophy", [
+      userIdToAward,
+      trophyName,
+    ]);
+
+    res.send({
+      id: trophy.id,
+      name: trophy.name,
+      ownerId: trophy.ownerId,
+      createdAt: trophy.createdAt,
+    });
+  } catch (e) {
+    logger.error(e);
+    res.status(500);
+    res.send("Error awarding trophy.");
   }
 });
 
@@ -1389,31 +1081,6 @@ router.post("/breakGame", async (req, res) => {
     await redis.breakGame(gameToClear);
 
     routeUtils.createModAction(userId, "Break Game", [gameToClear]);
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error clearing username.");
-  }
-});
-
-router.post("/breakPortGames", async (req, res) => {
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var port = String(req.body.port);
-    var perm = "breakPortGames";
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm))) return;
-
-    var games = await redis.getAllGames();
-
-    for (let game of games) {
-      if (game.port != port) continue;
-
-      if (game.status == "Open") await redis.deleteGame(game.id);
-      else await redis.breakGame(game.id);
-    }
-
     res.sendStatus(200);
   } catch (e) {
     logger.error(e);
@@ -1462,26 +1129,399 @@ router.post("/clearAllIPs", async (req, res) => {
   }
 });
 
-router.post("/giveCoins", async (req, res) => {
+router.post("/refundGame", async (req, res) => {
   try {
     var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToGiveTo = String(req.body.userId);
-    var amount = Number(req.body.amount);
-    var perm = "giveCoins";
+    var gameId = String(req.body.gameId);
+    var perm = "refundGame";
 
     if (!(await routeUtils.verifyPermission(res, userId, perm))) return;
 
-    await models.User.updateOne(
-      { id: userIdToGiveTo },
-      { $inc: { coins: amount } }
-    ).exec();
+    // Fetch the game from the database
+    var game = await models.Game.findOne({ id: gameId })
+      .populate("users")
+      .exec();
 
-    await redis.cacheUserInfo(userIdToGiveTo, true);
-    res.sendStatus(200);
+    if (!game) {
+      res.status(404);
+      res.send("Game not found.");
+      return;
+    }
+
+    if (!game.endTime) {
+      res.status(400);
+      res.send("Cannot refund a game that hasn't ended.");
+      return;
+    }
+
+    if (!game.ranked && !game.competitive) {
+      res.status(400);
+      res.send("Cannot refund a game that was not ranked or competitive.");
+      return;
+    }
+
+    // Parse player maps
+    const playerIdMap = JSON.parse(game.playerIdMap || "{}");
+    const playerAlignmentMap = JSON.parse(game.playerAlignmentMap || "{}");
+
+    // Get all user IDs from the game
+    const userIds = Object.keys(playerIdMap);
+
+    if (userIds.length === 0) {
+      res.status(400);
+      res.send("No players found in this game.");
+      return;
+    }
+
+    // Load game-specific data for calculations
+    const dbStats = require("../db/stats");
+    const gameAchievements = require("../data/Achievements");
+
+    // Helper function to get achievement reward
+    function getAchievementReward(gameType, achievementId) {
+      for (let achievement of Object.entries(
+        gameAchievements[gameType] || {}
+      ).filter((achievementData) => achievementId == achievementData[1].ID)) {
+        return achievement[1].reward || 0;
+      }
+      return 0;
+    }
+
+    // Helper function to revert stats
+    function revertStats(
+      stats,
+      gameType,
+      setupId,
+      role,
+      alignment,
+      won,
+      abandoned
+    ) {
+      if (!stats[gameType]) return;
+
+      const gameStats = stats[gameType];
+
+      // Helper to update a stats object
+      function updateStatsObj(statsObj, stat, inc) {
+        if (stat !== "totalGames") {
+          if (statsObj[stat]) {
+            statsObj[stat].total = Math.max(0, statsObj[stat].total - 1);
+            if (inc && statsObj[stat].count > 0) {
+              statsObj[stat].count = Math.max(0, statsObj[stat].count - 1);
+            }
+          }
+        } else if (statsObj.totalGames) {
+          statsObj.totalGames = Math.max(0, statsObj.totalGames - 1);
+        }
+      }
+
+      // Revert all stats
+      if (gameStats.all) {
+        if (won) updateStatsObj(gameStats.all, "wins", true);
+        else updateStatsObj(gameStats.all, "wins", false);
+
+        if (abandoned) updateStatsObj(gameStats.all, "abandons", true);
+      }
+
+      // Revert bySetup stats
+      if (gameStats.bySetup && gameStats.bySetup[setupId]) {
+        if (won) updateStatsObj(gameStats.bySetup[setupId], "wins", true);
+        else updateStatsObj(gameStats.bySetup[setupId], "wins", false);
+
+        if (abandoned)
+          updateStatsObj(gameStats.bySetup[setupId], "abandons", true);
+      }
+
+      // Revert byRole stats
+      if (role && gameStats.byRole && gameStats.byRole[role]) {
+        if (won) updateStatsObj(gameStats.byRole[role], "wins", true);
+        else updateStatsObj(gameStats.byRole[role], "wins", false);
+
+        if (abandoned) updateStatsObj(gameStats.byRole[role], "abandons", true);
+      }
+
+      // Revert byAlignment stats
+      if (
+        alignment &&
+        gameStats.byAlignment &&
+        gameStats.byAlignment[alignment]
+      ) {
+        if (won) updateStatsObj(gameStats.byAlignment[alignment], "wins", true);
+        else updateStatsObj(gameStats.byAlignment[alignment], "wins", false);
+
+        if (abandoned)
+          updateStatsObj(gameStats.byAlignment[alignment], "abandons", true);
+      }
+
+      return stats;
+    }
+
+    // Process each player
+    for (let userIdToRefund of userIds) {
+      try {
+        const playerId = playerIdMap[userIdToRefund];
+        const alignment = playerAlignmentMap[userIdToRefund];
+
+        // Fetch user data
+        var user = await models.User.findOne({ id: userIdToRefund }).exec();
+
+        if (!user) continue;
+
+        // Determine if player won
+        const won =
+          game.winners.includes(playerId) ||
+          (game.winnersInfo &&
+            game.winnersInfo.players &&
+            game.winnersInfo.players.includes(playerId));
+
+        // Determine if player abandoned
+        const abandoned = game.left && game.left.includes(playerId);
+
+        // Determine if player got kudos
+        const gotKudos = game.kudosReceiver === playerId;
+
+        // Calculate coins to revert
+        let coinsToRevert = 0;
+
+        // Revert win coins (only for ranked games)
+        if (game.ranked && won) {
+          coinsToRevert += 1;
+        }
+
+        // Calculate fortune/misfortune to revert
+        // We need to recalculate the same way the game did
+        let pointsToRevert = 0;
+        let pointsNegativeToRevert = 0;
+
+        if (game.history) {
+          try {
+            const history = JSON.parse(game.history);
+
+            // Extract role information from history
+            // History structure varies, but we can get it from the playerAlignmentMap and originalRoles
+            const roleFromHistory = null; // We'll extract this if needed
+
+            // Recalculate fortune/misfortune using the same algorithm as adjustSkillRatings
+            // This requires the setup's faction ratings AT THE TIME of the game
+            const setup = await models.Setup.findOne({
+              _id: game.setup,
+            }).select("id factionRatings");
+
+            if (setup && setup.factionRatings) {
+              const factionRatingsRaw = setup.factionRatings || [];
+              const factionRatings = new Map(
+                factionRatingsRaw.map((factionRating) => [
+                  factionRating.factionName,
+                  factionRating.skillRating,
+                ])
+              );
+
+              // Rebuild the faction structure from the game data
+              const factionWinnerFractions = {};
+              const memberFactions = {};
+
+              // Parse history to get originalRoles
+              let originalRoles = {};
+              if (history.originalRoles) {
+                originalRoles = history.originalRoles;
+              }
+
+              // Build faction membership
+              for (let userId in playerIdMap) {
+                const playerId = playerIdMap[userId];
+                if (originalRoles[playerId]) {
+                  const roleName = originalRoles[playerId].split(":")[0];
+                  const alignment = playerAlignmentMap[userId] || "";
+
+                  // Determine faction name (same logic as in adjustSkillRatings)
+                  const alignmentIsFaction =
+                    alignment === "Village" ||
+                    alignment === "Mafia" ||
+                    alignment === "Cult";
+                  const factionName = alignmentIsFaction ? alignment : roleName;
+                  memberFactions[playerId] = factionName;
+
+                  if (factionWinnerFractions[factionName] === undefined) {
+                    factionWinnerFractions[factionName] = {
+                      originalCount: 0,
+                      winnerCount: 0,
+                    };
+                  }
+
+                  factionWinnerFractions[factionName].originalCount++;
+                  if (won) {
+                    factionWinnerFractions[factionName].winnerCount++;
+                  }
+                }
+              }
+
+              const factionNames = Object.keys(factionWinnerFractions);
+
+              // Calculate faction ratings
+              const factionsToBeRated = factionNames.map((factionName) => {
+                if (factionRatings.has(factionName)) {
+                  const factionRating = factionRatings.get(factionName);
+                  return [
+                    rating({
+                      mu: factionRating.mu,
+                      sigma: factionRating.sigma,
+                    }),
+                  ];
+                } else {
+                  return [
+                    rating({
+                      mu: constants.defaultSkillRatingMu,
+                      sigma: constants.defaultSkillRatingSigma,
+                    }),
+                  ];
+                }
+              });
+
+              const factionScores = factionNames.map((factionName) => {
+                const factionWinnerFraction =
+                  factionWinnerFractions[factionName];
+                return (
+                  factionWinnerFraction.winnerCount /
+                  factionWinnerFraction.originalCount
+                );
+              });
+
+              const predictions = predictWin(factionsToBeRated);
+
+              const pointsWonByFactions = {};
+              const pointsLostByFactions = {};
+
+              for (let i = 0; i < factionNames.length; i++) {
+                const factionName = factionNames[i];
+                const winPredictionPercent = predictions[i];
+
+                pointsWonByFactions[factionName] = Math.round(
+                  constants.pointsNominalAmount / 2 / winPredictionPercent
+                );
+                pointsLostByFactions[factionName] = Math.round(
+                  constants.pointsNominalAmount / 2 / (1 - winPredictionPercent)
+                );
+              }
+
+              // Calculate points for this specific player
+              const playerFaction = memberFactions[playerId];
+              if (playerFaction) {
+                const maxEarnedPoints = constants.pointsNominalAmount * 20;
+                let pointsEarned = won
+                  ? pointsWonByFactions[playerFaction]
+                  : pointsLostByFactions[playerFaction];
+
+                if (pointsEarned > maxEarnedPoints) {
+                  pointsEarned = maxEarnedPoints;
+                }
+
+                if (won) {
+                  pointsToRevert = pointsEarned;
+                } else {
+                  pointsNegativeToRevert = pointsEarned;
+                }
+              }
+            }
+          } catch (e) {
+            logger.error(
+              `Error calculating fortune/misfortune for game ${gameId}:`,
+              e
+            );
+            // Continue without reverting points if calculation fails
+          }
+        }
+
+        // Extract role from history for stats reversion
+        const roleFromHistory = null; // Simplified - would need more complex parsing
+
+        const setupId = game.setup ? String(game.setup) : null;
+
+        // Update user stats (for ranked/competitive games only)
+        user.stats = revertStats(
+          user.stats,
+          game.type,
+          setupId,
+          roleFromHistory,
+          alignment,
+          won,
+          abandoned
+        );
+
+        // Build update operations
+        const updateOps = {
+          $pull: { games: game._id },
+          $set: {
+            stats: user.stats,
+          },
+        };
+
+        const incOps = {};
+
+        // Revert kudos
+        if (gotKudos) {
+          incOps.kudos = -1;
+        }
+
+        // Revert coins
+        if (coinsToRevert > 0) {
+          incOps.coins = -coinsToRevert;
+        }
+
+        // Revert hearts
+        if (game.ranked) {
+          var itemsOwned = await redis.getUserItemsOwned(userIdToRefund);
+          const redHeartCapacity =
+            constants.initialRedHeartCapacity +
+            (itemsOwned?.bonusRedHearts || 0);
+          updateOps.$set.redHearts = redHeartCapacity;
+        }
+
+        if (game.competitive) {
+          updateOps.$set.goldHearts = constants.initialGoldHeartCapacity;
+        }
+
+        // Revert fortune/misfortune points
+        if (pointsToRevert > 0) {
+          incOps.points = -pointsToRevert;
+        }
+        if (pointsNegativeToRevert > 0) {
+          incOps.pointsNegative = -pointsNegativeToRevert;
+        }
+
+        if (Object.keys(incOps).length > 0) {
+          updateOps.$inc = incOps;
+        }
+
+        // Calculate new win rate
+        const newWinRate =
+          (user.stats[game.type]?.all?.wins?.count || 0) /
+          (user.stats[game.type]?.all?.wins?.total || 1);
+        updateOps.$set.winRate = newWinRate;
+
+        // Apply the update
+        await models.User.updateOne({ id: userIdToRefund }, updateOps).exec();
+
+        // Clear user cache
+        await redis.cacheUserInfo(userIdToRefund, true);
+      } catch (e) {
+        logger.error(`Error refunding game for user ${userIdToRefund}:`, e);
+        // Continue processing other users
+      }
+    }
+
+    // Log the mod action
+    await routeUtils.createModAction(userId, "Refund Game", [gameId]);
+
+    res.send(
+      `Successfully refunded game for ${userIds.length} player(s). ` +
+        `Reverted: win/loss/abandonment statistics, kudos, coins from wins, ${
+          game.ranked ? "red" : "gold"
+        } hearts, and fortune/misfortune points.`
+    );
   } catch (e) {
     logger.error(e);
     res.status(500);
-    res.send("Error giving coins.");
+    res.send("Error refunding game: " + e.message);
   }
 });
 
@@ -1505,31 +1545,6 @@ router.post("/changeName", async (req, res) => {
     logger.error(e);
     res.status(500);
     res.send("Error changing name.");
-  }
-});
-
-router.post("/scheduleRestart", async (req, res) => {
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var when = routeUtils.parseTime(String(req.body.when)) + Date.now();
-    var perm = "scheduleRestart";
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm))) return;
-
-    if (when <= Date.now()) {
-      res.status(500);
-      res.send("Restarts must be scheduled for the future.");
-      return;
-    }
-
-    var restart = new models.Restart({ when });
-    await restart.save();
-
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error scheduling restart.");
   }
 });
 
@@ -1571,7 +1586,7 @@ router.get("/announcements", async function (req, res) {
       last,
       first,
       "id modId mod content date -_id",
-      constants.announcementsPageSize,
+      5,
       ["mod", "id name avatar -_id"]
     );
 
@@ -1611,32 +1626,6 @@ router.post("/announcement", async function (req, res) {
     logger.error(e);
     res.status(500);
     res.send("Error creating announcements.");
-  }
-});
-
-router.post("/blockName", async function (req, res) {
-  res.setHeader("Content-Type", "application/json");
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var name = String(req.body.name);
-    var perm = "blockName";
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm))) return;
-
-    if (name.length > constants.maxUserNameLength) {
-      res.status(500);
-      res.send("Name is too long.");
-      return;
-    }
-
-    var blockedName = new models.BlockedName({ name });
-    await blockedName.save();
-
-    res.sendStatus(200);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error blocking name.");
   }
 });
 

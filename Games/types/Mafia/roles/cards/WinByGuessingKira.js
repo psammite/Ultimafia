@@ -10,7 +10,7 @@ module.exports = class WinByGuessingKira extends Card {
       priority: PRIORITY_WIN_CHECK_DEFAULT,
       againOnFinished: true,
       check: function (counts, winners, aliveCount) {
-        if (this.player.alive && this.player.role.data.guessed >= 2) {
+        if (this.player.alive && this.player.role.data.guessed >= 1) {
           winners.addPlayer(this.player, this.name);
         }
       },
@@ -22,7 +22,7 @@ module.exports = class WinByGuessingKira extends Card {
         }
 
         this.player.queueAlert(
-          "It seems you have dropped your notebook into the mortal realm... you must retrieve it."
+          "It seems you have dropped your notebook into the mortal realm… you must retrieve it."
         );
       },
 
@@ -45,7 +45,7 @@ module.exports = class WinByGuessingKira extends Card {
         eligiblePlayers = Random.randomizeArray(eligiblePlayers);
         for (let i = 0; i < numNotebooksToSpawn; i++) {
           eligiblePlayers[i].holdItem("Notebook");
-          eligiblePlayers[i].queueAlert("You possess a mysterious notebook...");
+          eligiblePlayers[i].queueAlert("You possess a mysterious notebook…");
         }
         this.game.notebooksSpawned = true;
       },

@@ -13,16 +13,17 @@ module.exports = class Library extends Card {
         action: {
           labels: ["effect"],
           priority: PRIORITY_EFFECT_GIVER_DEFAULT,
+          role: this.role,
           run: function () {
             if (this.target == "No") return;
 
-            this.actor.role.metLibrary = true;
+            this.role.metLibrary = true;
             for (let p of this.game.players) {
-              p.giveEffect("Speak Only Whispers", 1);
+              this.role.giveEffect(p, "SpeakOnlyWhispers", 1);
             }
 
             this.game.queueAlert(
-              "You all meet in a library. Someone tells you to quiet your voice..."
+              "You all meet in a library. Someone tells you to quiet your voice…"
             );
           },
         },

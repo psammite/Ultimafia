@@ -1,4 +1,5 @@
 const Card = require("../../Card");
+const Random = require("../../../../../lib/Random");
 const { PRIORITY_INVESTIGATIVE_DEFAULT } = require("../../const/Priority");
 
 module.exports = class TrackPlayer extends Card {
@@ -11,17 +12,17 @@ module.exports = class TrackPlayer extends Card {
         flags: ["voting"],
         action: {
           priority: PRIORITY_INVESTIGATIVE_DEFAULT,
+          labels: ["investigate"],
           run: function () {
-            let visits = this.getVisits(this.target);
-            let visitNames = visits.map((p) => p.name);
-
-            if (visitNames.length == 0) visitNames.push("no one");
-
-            this.actor.queueAlert(
-              `:track: ${this.target.name} visited ${visitNames.join(
-                ", "
-              )} during the night.`
+            let info = this.game.createInformation(
+              "TrackerInfo",
+              this.actor,
+              this.game,
+              this.target
             );
+            info.processInfo();
+
+            this.actor.queueAlert(`:track: ${info.getInfoFormated()}`);
           },
         },
       },
