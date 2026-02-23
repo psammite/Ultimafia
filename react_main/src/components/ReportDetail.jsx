@@ -28,6 +28,7 @@ import { NameWithAvatar } from "pages/User/User";
 import { UserContext, SiteInfoContext } from "../Contexts";
 import ReportTypology from "./ReportTypology";
 import { useViolations } from "../hooks/useViolations";
+import RapSheet from "./RapSheet";
 
 export default function ReportDetail({
   report: initialReport,
@@ -258,6 +259,7 @@ export default function ReportDetail({
                   avatar={report.reportedUserAvatar}
                 />
               </Box>
+              <RapSheet userId={report.reportedUserId} />
               {report.gameId && (
                 <Box>
                   <Typography variant="caption" color="textSecondary">

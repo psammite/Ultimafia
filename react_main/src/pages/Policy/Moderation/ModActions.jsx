@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { Box, Stack, Typography } from "@mui/material";
+import {
+  Autocomplete,
+  Box,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
 
 import { useErrorAlert } from "components/Alerts";
 import { getPageNavFilterArg, PageNav } from "components/Nav";
@@ -12,21 +18,63 @@ import { COMMAND_COLOR, useModCommands } from "./commands";
 export function ModActions(props) {
   const [page, setPage] = useState(1);
   const [actions, setActions] = useState([]);
+  const [staffNameFilter, setStaffNameFilter] = useState("");
+  const [actionTypeFilter, setActionTypeFilter] = useState("");
 
   const modCommands = useModCommands({}, () => {}, props.setResults);
   const errorAlert = useErrorAlert();
 
+  const actionTypeOptions = Object.keys(modCommands).sort();
+
   useEffect(() => {
-    onPageNav(1);
-  }, []);
+    loadActions(1);
+  }, [staffNameFilter, actionTypeFilter]);
 
-  function onPageNav(_page) {
-    var filterArg = getPageNavFilterArg(_page, page, actions, "date");
+  function loadActions(_page) {
+    const params = new URLSearchParams();
 
-    if (filterArg == null) return;
+    if (_page > 1 && actions.length > 0) {
+      params.append("last", actions[actions.length - 1].date);
+    }
+
+    if (staffNameFilter) {
+      params.append("staffName", staffNameFilter);
+    }
+    if (actionTypeFilter) {
+      params.append("actionType", actionTypeFilter);
+    }
 
     axios
-      .get(`/api/mod/actions?${filterArg}`)
+      .get(`/api/mod/actions?${params.toString()}`)
+      .then((res) => {
+        if (res.data.length > 0 || _page === 1) {
+          setActions(res.data);
+          setPage(_page);
+        }
+      })
+      .catch(errorAlert);
+  }
+
+  function onPageNav(_page) {
+    if (_page === page) return;
+
+    const params = new URLSearchParams();
+
+    if (_page > page && actions.length > 0) {
+      params.append("last", actions[actions.length - 1].date);
+    } else if (_page < page && actions.length > 0) {
+      params.append("first", actions[0].date);
+    }
+
+    if (staffNameFilter) {
+      params.append("staffName", staffNameFilter);
+    }
+    if (actionTypeFilter) {
+      params.append("actionType", actionTypeFilter);
+    }
+
+    axios
+      .get(`/api/mod/actions?${params.toString()}`)
       .then((res) => {
         if (res.data.length > 0) {
           setActions(res.data);
@@ -111,9 +159,50 @@ export function ModActions(props) {
   return (
     <div className="box-panel">
       <Typography variant="h3">Mod Actions</Typography>
-      <Stack direction="column" spacing={1}>
+      <Stack direction="column" spacing={2}>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={2}
+          sx={{ mb: 1 }}
+        >
+          <TextField
+            label="Search by Staff Name"
+            variant="outlined"
+            size="small"
+            value={staffNameFilter}
+            onChange={(e) => {
+              setStaffNameFilter(e.target.value);
+              setPage(1);
+            }}
+            sx={{ minWidth: 200 }}
+          />
+          <Autocomplete
+            options={actionTypeOptions}
+            value={actionTypeFilter || null}
+            onChange={(e, newValue) => {
+              setActionTypeFilter(newValue || "");
+              setPage(1);
+            }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Filter by Action Type"
+                variant="outlined"
+                size="small"
+              />
+            )}
+            sx={{ minWidth: 250 }}
+            clearOnEscape
+          />
+        </Stack>
         {pageNav}
-        {actionRows}
+        {actions.length === 0 ? (
+          <Typography variant="body2" color="textSecondary" sx={{ py: 2, textAlign: "center" }}>
+            No actions found.
+          </Typography>
+        ) : (
+          actionRows
+        )}
         {pageNav}
       </Stack>
     </div>

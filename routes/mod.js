@@ -1019,60 +1019,6 @@ router.get("/flagged", async (req, res) => {
   }
 });
 
-router.get("/bans", async (req, res) => {
-  try {
-    var userId = await routeUtils.verifyLoggedIn(req);
-    var userIdToCheck = String(req.query.userId || "").trim();
-    var perm = "seeModPanel";
-
-    if (!(await routeUtils.verifyPermission(res, userId, perm))) return;
-
-    if (!userIdToCheck) {
-      res.status(400);
-      res.send("User ID required.");
-      return;
-    }
-
-    var user = await models.User.findOne({
-      id: userIdToCheck,
-    }).select("id");
-
-    if (!user) {
-      res.status(404);
-      res.send("User does not exist.");
-      return;
-    }
-
-    const activeBans = await models.Ban.find({
-      userId: userIdToCheck,
-      $or: [{ expires: 0 }, { expires: { $gt: Date.now() } }],
-    }).select("type expires");
-
-    const banTypeLabels = {
-      forum: "Forum",
-      chat: "Chat",
-      game: "Game",
-      playRanked: "Ranked",
-      playCompetitive: "Competitive",
-      site: "Site",
-      ipFlag: "IP Flag",
-      gameAuto: "Game (Auto)",
-    };
-
-    const formattedBans = activeBans.map((ban) => ({
-      type: banTypeLabels[ban.type] || ban.type,
-      expires: ban.expires,
-      permanent: ban.expires === 0,
-    }));
-
-    res.send(formattedBans);
-  } catch (e) {
-    logger.error(e);
-    res.status(500);
-    res.send("Error loading bans.");
-  }
-});
-
 router.post("/clearSetupName", async (req, res) => {
   res.setHeader("Content-Type", "application/json");
   try {
@@ -2289,10 +2235,31 @@ router.get("/actions", async function (req, res) {
   try {
     var last = Number(req.query.last);
     var first = Number(req.query.first);
+    var staffName = req.query.staffName ? String(req.query.staffName).trim() : "";
+    var actionType = req.query.actionType ? String(req.query.actionType).trim() : "";
+
+    var query = {};
+
+    if (actionType) {
+      query.name = actionType;
+    }
+
+    if (staffName) {
+      const staffUsers = await models.User.find({
+        name: { $regex: staffName, $options: "i" },
+      }).select("id");
+      const staffIds = staffUsers.map((u) => u.id);
+      if (staffIds.length > 0) {
+        query.modId = { $in: staffIds };
+      } else {
+        res.send([]);
+        return;
+      }
+    }
 
     var actions = await routeUtils.modelPageQuery(
       models.ModAction,
-      {},
+      query,
       "date",
       last,
       first,
