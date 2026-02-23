@@ -3053,7 +3053,6 @@ module.exports = [
   "Buskirk",
   "Buskus",
   "Bussey",
-  "Bussy",
   "Bust",
   "Butch",
   "Butcher",
