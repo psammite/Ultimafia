@@ -677,6 +677,9 @@ export default function PrivacyPolicy() {
         <Typography variant="body1" paragraph>
           If you have any questions, concerns, or requests regarding this Privacy Policy or our data practices, 
           please contact us:
+        <Typography variant="body1" paragraph>
+          <strong>By email:</strong> ultimafia.official@gmail.com
+        </Typography>
         </Typography>
         <Typography variant="body1" paragraph>
           <strong>Through the Service:</strong> Use the contact methods available on the Service
