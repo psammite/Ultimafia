@@ -253,7 +253,6 @@ export default function Profile() {
           setTrophies(res.data.trophies || []);
           setProfileFamily(res.data.family || null);
           setJoined(res.data.joined || null);
-          setIsFlagged(Boolean(res.data.flagged));
           setFriendsPage(1);
           loadFriends(resolvedId, "", 1);
 
