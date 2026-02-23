@@ -319,7 +319,7 @@ router.get("/:id/connect", async function (req, res) {
       if (
         userId &&
         game.settings.competitive &&
-        !(await routeUtils.verifyPermission(userId, "playRanked"))
+        !(await routeUtils.verifyPermission(userId, "playCompetitive"))
       ) {
         res.status(500);
         res.send(
@@ -692,15 +692,15 @@ router.post("/host", async function (req, res) {
     }
 
     if (
-        req.body.competitive &&
-        !(await routeUtils.verifyPermission(userId, "playRanked"))
-      ) {
-        res.status(500);
-        res.send(
-          "You are unable to play competitive games. Please contact an admin if this is in error."
-        );
-        return;
-      }
+      req.body.competitive &&
+      !(await routeUtils.verifyPermission(userId, "playCompetitive"))
+    ) {
+      res.status(500);
+      res.send(
+        "You are unable to play competitive games. Please contact an admin if this is in error."
+      );
+      return;
+    }
 
     const user = await redis.getUserInfo(userId);
     if (req.body.ranked) {

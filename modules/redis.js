@@ -1369,7 +1369,10 @@ async function cacheUserPermissions(userId) {
   );
   var groups = inGroups.map((inGroup) => inGroup.toJSON().group);
 
-  var bans = await models.Ban.find({ userId: userId }).select("permissions");
+  var bans = await models.Ban.find({
+    userId: userId,
+    $or: [{ expires: 0 }, { expires: { $gt: Date.now() } }],
+  }).select("permissions");
 
   var perms = {};
   var maxRank = user.rank || 0;

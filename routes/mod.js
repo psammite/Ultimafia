@@ -530,7 +530,7 @@ router.post("/ban", async (req, res) => {
       chat: ["publicChat", "privateChat"],
       game: ["playGame"],
       ranked: ["playRanked", "playCompetitive"],
-      competitive: ["playRanked", "playCompetitive"],
+      competitive: ["playCompetitive"],
       site: ["signIn"],
     };
 
