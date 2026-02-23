@@ -191,7 +191,7 @@ const violationDefinitions = [
     id: "cheating",
     name: "Cheating",
     description:
-      "Any manipulation that provides an unfair advantage. Examples include one person using multiple accounts in one game (multi-accounting), two or more people using the same account across ranked games or the Competitive round (account-sharing), or using external methods to discuss the game.",
+      "Any manipulation that provides an unfair advantage. Examples include one person using multiple accounts in one game (multi-accounting), two or more people using the same account across ranked games or the Competitive round (account-sharing), or using external methods to discuss the game. An exception is using a pre-approved Hydra account.",
     offenses: ["1 day", "1 week", "3 weeks", "Loss of privilege", "-", "-"],
     category: "Game",
     appliesTo: ["game", "playRanked", "playCompetitive"],

@@ -55,7 +55,7 @@ export default function Rules() {
         UltiMafia Rules of Conduct
       </Typography>
       <Typography variant="body2" color="text.secondary" paragraph>
-        Last Updated: February 17, 2026
+        Last Updated: February 22, 2026
       </Typography>
 
       <Box sx={{ borderBottom: 1, borderColor: "divider"}}>
@@ -74,6 +74,7 @@ export default function Rules() {
           <Tab label="Game-Related Violations" />
           <Tab label="Violation Lengths" />
           <Tab label="Filing an Appeal" />
+          <Tab label="Other Policies" />
         </Tabs>
       </Box>
 
@@ -208,6 +209,28 @@ export default function Rules() {
           that were dismissed cannot be appealed. If you
           already have a pending appeal for a violation, you must wait for it
           to be reviewed before filing another appeal for the same violation.
+        </Typography>
+      </TabPanel>
+
+      <TabPanel value={selectedTab} index={4}>
+        <Typography variant="h3" gutterBottom>
+          Other Policies
+        </Typography>
+          <Typography
+            variant="h4"
+            gutterBottom
+            sx={{ textDecoration: "underline" }}
+          >
+            Hydra Accounts
+          </Typography>
+        <Typography variant="body1" paragraph>
+            Accounts wherein two or more users share a single account are permitted, 
+            provided that admins are notified and approve of the account sharing. 
+            The account must exist for the express purpose of being shared; a hydra 
+            is not the same as a user inviting another user to play on their personal 
+            account. It is required to announce which user is currently on the account 
+            when joining a pregame, and the involved users may not chat on-site or off-site 
+            when the account is in a game.
         </Typography>
       </TabPanel>
     </>
