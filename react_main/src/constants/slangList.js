@@ -142,11 +142,6 @@ export const slangList = {
       "Veg: when a player's inactivity or inability to complete in-game tasks causes the game to automatically kill them.",
     emoji: "🥕",
   },
-  sui: {
-    definition:
-      "Sui: when a player leaves a game for various reasons, and makes it unranked.",
-    emoji: "🚫",
-  },
   // unvote: {
   //   definition:
   //     "Unvoting is the action in which one cancels the vote they have made.",

@@ -1019,6 +1019,51 @@ router.get("/flagged", async (req, res) => {
   }
 });
 
+router.get("/bans", async (req, res) => {
+  res.setHeader("Content-Type", "application/json");
+  try {
+    var userId = await routeUtils.verifyLoggedIn(req);
+    var userIdToActOn = String(req.query.userId || "").trim();
+    var perm = "seeModPanel";
+
+    if (!(await routeUtils.verifyPermission(res, userId, perm))) return;
+
+    if (!userIdToActOn) {
+      res.status(400);
+      res.send("User ID is required.");
+      return;
+    }
+
+    var user = await models.User.findOne({
+      id: userIdToActOn,
+    }).select("id");
+
+    if (!user) {
+      res.status(404);
+      res.send("User does not exist.");
+      return;
+    }
+
+    var activeBans = await models.Ban.find({
+      userId: userIdToActOn,
+      type: { $ne: "ipFlag" },
+      $or: [{ expires: 0 }, { expires: { $gt: Date.now() } }],
+    }).select("type expires -_id");
+
+    var formattedBans = activeBans.map((ban) => ({
+      type: ban.type,
+      expires: ban.expires,
+      permanent: ban.expires === 0,
+    }));
+
+    res.send(formattedBans);
+  } catch (e) {
+    logger.error(e);
+    res.status(500);
+    res.send("Error loading active bans.");
+  }
+});
+
 router.post("/clearSetupName", async (req, res) => {
   res.setHeader("Content-Type", "application/json");
   try {
@@ -3481,6 +3526,24 @@ router.post("/appeals/:id/approve", async (req, res) => {
     violationTicket.appealedAt = Date.now();
     violationTicket.appealedBy = userId;
     await violationTicket.save();
+
+    // Remove the active ban associated with this violation
+    if (violationTicket.linkedBanId) {
+      await models.Ban.deleteMany({
+        id: violationTicket.linkedBanId,
+      }).exec();
+
+      // Handle site bans - update User.banned flag
+      if (violationTicket.banType === "site") {
+        await models.User.updateOne(
+          { id: violationTicket.userId },
+          { $set: { banned: false } }
+        ).exec();
+      }
+
+      // Refresh user permissions cache
+      await redis.cacheUserPermissions(violationTicket.userId);
+    }
 
     // Update appeal
     appeal.status = "approved";
