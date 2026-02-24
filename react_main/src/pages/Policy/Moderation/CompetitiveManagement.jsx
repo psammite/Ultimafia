@@ -19,8 +19,11 @@ import Setup from "components/Setup";
 
 import { COMMAND_COLOR } from "./commands";
 
+const DEFAULT_MINIMUM_POINTS = 150;
+
 export default function CompetitiveManagement() {
   const [seasonData, setSeasonData] = useState(null);
+  const [roundSettings, setRoundSettings] = useState({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [addSetupDialogOpen, setAddSetupDialogOpen] = useState(false);
@@ -53,6 +56,7 @@ export default function CompetitiveManagement() {
             return;
           }
           setSeasonData(response.data);
+          setRoundSettings(response.data.roundSettings || {});
           setLoading(false);
         } else {
           errorAlert("Invalid season data received.");
@@ -100,20 +104,42 @@ export default function CompetitiveManagement() {
     }
   };
 
+  const handleMinimumPointsChange = (roundNumber, value) => {
+    const numValue = parseInt(value, 10);
+    setRoundSettings((prev) => ({
+      ...prev,
+      [roundNumber]: {
+        ...prev[roundNumber],
+        minimumPoints: isNaN(numValue) ? DEFAULT_MINIMUM_POINTS : numValue,
+      },
+    }));
+  };
+
   const handleSave = () => {
     if (!seasonData) return;
 
     setSaving(true);
-    axios
-      .post("/api/competitive/updateSetupOrder", {
-        setupOrder: seasonData.setupOrder,
-      })
+
+    const setupOrderPromise = axios.post("/api/competitive/updateSetupOrder", {
+      setupOrder: seasonData.setupOrder,
+    });
+
+    const roundSettingsPromise = axios.post(
+      "/api/competitive/updateRoundSettings",
+      {
+        roundSettings: roundSettings,
+      }
+    );
+
+    Promise.all([setupOrderPromise, roundSettingsPromise])
       .then(() => {
-        siteInfo.showAlert("Setup order updated successfully.", "success");
+        siteInfo.showAlert("Changes saved successfully.", "success");
         setSaving(false);
       })
       .catch((error) => {
-        errorAlert("Failed to update setup order.");
+        errorAlert(
+          error.response?.data || "Failed to save changes."
+        );
         setSaving(false);
       });
   };
@@ -151,6 +177,7 @@ export default function CompetitiveManagement() {
               response.data.setupOrder
             ) {
               setSeasonData(response.data);
+              setRoundSettings(response.data.roundSettings || {});
               setAddSetupDialogOpen(false);
               setSetupIdToAdd("");
               setAddingSetup(false);
@@ -239,6 +266,23 @@ export default function CompetitiveManagement() {
                           <i className="fas fa-plus" />
                         </IconButton>
                       </Stack>
+                      <TextField
+                        label="Minimum Points"
+                        type="number"
+                        size="small"
+                        value={
+                          roundSettings[roundIndex + 1]?.minimumPoints ??
+                          DEFAULT_MINIMUM_POINTS
+                        }
+                        onChange={(e) =>
+                          handleMinimumPointsChange(
+                            roundIndex + 1,
+                            e.target.value
+                          )
+                        }
+                        inputProps={{ min: 0 }}
+                        sx={{ mb: 1, maxWidth: 200 }}
+                      />
                       <Stack direction="column" spacing={1}>
                         {roundSetups && roundSetups.length > 0 ? (
                           roundSetups.map((setupNumber, setupIndex) => {

@@ -914,6 +914,29 @@ export function useModCommands(argValues, commandRan, setResults) {
           .catch(errorAlert);
       },
     },
+    "Adjust Minimum Games Threshold": {
+      perm: "adjustMinGames",
+      category: "Site Management",
+      args: [
+        {
+          label: "Minimum Games for Ranked",
+          name: "value",
+          type: "number",
+        },
+      ],
+      run: function () {
+        axios
+          .post("/api/mod/minGamesThreshold", argValues)
+          .then((res) => {
+            siteInfo.showAlert(
+              `Minimum games for ranked set to ${res.data.minimumGamesForRanked}.`,
+              "success"
+            );
+            commandRan();
+          })
+          .catch(errorAlert);
+      },
+    },
     "Toggle Ranked Setup": {
       perm: "approveRanked",
       category: "Setup Management",

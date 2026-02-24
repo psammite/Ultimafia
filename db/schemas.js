@@ -733,6 +733,7 @@ var schemas = {
     dateCompleted: { type: String }, // YYYY-MM-DD (inclusive)
     remainingOpenDays: { type: Number, required: true },
     remainingReviewDays: { type: Number, required: true },
+    minimumPoints: { type: Number, default: 150 },
   }),
   CompetitiveGameCompletion: new mongoose.Schema({
     userId: { type: String },

@@ -9,11 +9,11 @@ const logger = require("../modules/logging")(".");
 const router = express.Router();
 const axios = require("axios");
 
-async function userCanPlayCompetitive(userId) {
+async function userCanPlayCompetitive(userId, minimumPoints = constants.minimumPointsForCompetitive) {
   const user = await redis.getUserInfo(userId);
 
-  if (!user || user.points < constants.minimumPointsForCompetitive) {
-    return `You cannot play competitive games until you've earned ${constants.minimumPointsForCompetitive} fortune.`;
+  if (!user || user.points < minimumPoints) {
+    return `You cannot play competitive games until you've earned ${minimumPoints} fortune.`;
   }
 
   if (!user || user.goldHearts <= 0) {
@@ -252,11 +252,12 @@ router.get("/:id/connect", async function (req, res) {
       // Ranked checks
       if (userId && game.settings.ranked && !isSpectating) {
         const user = await redis.getUserInfo(userId);
+        const minGamesForRanked = await redis.getMinimumGamesForRanked();
 
-        if (!user || user.gamesPlayed < constants.minimumGamesForRanked) {
+        if (!user || user.gamesPlayed < minGamesForRanked) {
           res.status(400);
           res.send(
-            `You cannot play ranked games until you've played ${constants.minimumGamesForRanked} games.`
+            `You cannot play ranked games until you've played ${minGamesForRanked} games.`
           );
           return;
         }
@@ -272,7 +273,9 @@ router.get("/:id/connect", async function (req, res) {
 
       // Competitive checks
       if (userId && game.settings.competitive && !isSpectating) {
-        const failureReason = await userCanPlayCompetitive(userId);
+        const roundInfo = await redis.getCompRoundInfo();
+        const minimumPoints = roundInfo?.round?.minimumPoints ?? constants.minimumPointsForCompetitive;
+        const failureReason = await userCanPlayCompetitive(userId, minimumPoints);
         if (failureReason) {
           res.status(400);
           res.send(failureReason);
@@ -704,10 +707,11 @@ router.post("/host", async function (req, res) {
 
     const user = await redis.getUserInfo(userId);
     if (req.body.ranked) {
-      if (user && user.gamesPlayed < constants.minimumGamesForRanked) {
+      const minGamesForRanked = await redis.getMinimumGamesForRanked();
+      if (user && user.gamesPlayed < minGamesForRanked) {
         res.status(400);
         res.send(
-          `You cannot play ranked games until you've played ${constants.minimumGamesForRanked} games.`
+          `You cannot play ranked games until you've played ${minGamesForRanked} games.`
         );
         return;
       }
@@ -722,7 +726,8 @@ router.post("/host", async function (req, res) {
     }
 
     if (userId && req.body.competitive) {
-      const failureReason = await userCanPlayCompetitive(userId);
+      const minimumPoints = roundInfo?.round?.minimumPoints ?? constants.minimumPointsForCompetitive;
+      const failureReason = await userCanPlayCompetitive(userId, minimumPoints);
       if (failureReason) {
         res.status(400);
         res.send(failureReason);

@@ -468,6 +468,7 @@ module.exports = {
     editAnySetup: true,
     createPoll: true,
     manageCompetitive: true,
+    adjustMinGames: true,
     awardTrophy: true,
     deleteStrategy: true,
     seeModPanel: true,

@@ -1471,6 +1471,20 @@ async function getDeletedVanityUrlUserId(vanityUrl) {
   return await client.getAsync(key);
 }
 
+async function getMinimumGamesForRanked() {
+  const key = "setting:minimumGamesForRanked";
+  const value = await client.getAsync(key);
+  if (value === null) {
+    return constants.minimumGamesForRanked;
+  }
+  return parseInt(value, 10);
+}
+
+async function setMinimumGamesForRanked(value) {
+  const key = "setting:minimumGamesForRanked";
+  await client.setAsync(key, value);
+}
+
 module.exports = {
   client,
   getUserDbId,
@@ -1547,4 +1561,6 @@ module.exports = {
   rateLimit,
   cacheDeletedVanityUrl,
   getDeletedVanityUrlUserId,
+  getMinimumGamesForRanked,
+  setMinimumGamesForRanked,
 };
