@@ -22,6 +22,8 @@ function useTimersReducer() {
         newTimers[action.timer.name] = {
           delay: action.timer.delay,
           time: 0,
+          lastSyncTime: 0,
+          lastSyncTimestamp: Date.now(),
         };
         break;
       case "clear":
@@ -34,9 +36,17 @@ function useTimersReducer() {
           };
         }
         newTimers[action.name].time = action.time;
+        newTimers[action.name].lastSyncTime = action.time;
+        newTimers[action.name].lastSyncTimestamp = Date.now();
         break;
       case "updateAll":
-        // for (var timerName in newTimers) newTimers[timerName].time += 200;
+        for (let timerName in newTimers) {
+          const t = newTimers[timerName];
+          if (t.lastSyncTimestamp != null) {
+            const elapsed = Date.now() - t.lastSyncTimestamp;
+            t.time = t.lastSyncTime + elapsed;
+          }
+        }
 
         const timer =
           newTimers["pregameCountdown"] ||
@@ -53,7 +63,7 @@ function useTimersReducer() {
 
         const canVegPing =
           !timer.lastVegPingDate ||
-          new Date() - timer?.lastVegPingDate >= 10 * 1000; // note: 10 * 1000 might not work, cuz lastVegPingDate becomes null upon reset/restart anyway...
+          new Date() - timer?.lastVegPingDate >= 10 * 1000;
         if (canVegPing && intTime >= 25 && intTime <= 30) {
           action.playAudio("vegPing");
           timer.lastVegPingDate = new Date();
