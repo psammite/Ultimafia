@@ -110,6 +110,7 @@ import RoleRevealModal from "components/gameComponents/RoleRevealModal";
 import ChangeSetupDialog from "components/gameComponents/ChangeSetupDialog";
 import UrgencyOverlay from "./components/UrgencyOverlay";
 import ReadyCheckDialog from "./components/ReadyCheck";
+import RoleMarkerToggle from "./components/RoleMarkerToggle";
 
 const emoteMap = {
   dice1: dice1,
@@ -651,6 +652,7 @@ export default function Game() {
     });
 
     socket.on("death", (playerId) => {
+      toggleRolePrediction(playerId, null);
       updateHistory({
         type: "death",
         playerId,
@@ -2759,50 +2761,6 @@ export function SideMenu({
         {content}
       </AccordionDetails>
     </Accordion>
-  );
-}
-
-function RoleMarkerToggle({ playerId, setup, toggleRolePrediction }) {
-  const roleMarkerRef = useRef();
-
-  const popoverProps = usePopover({
-    path: `/api/setup/${setup.id}`,
-    type: "rolePrediction",
-    boundingEl: roleMarkerRef.current,
-    postprocessData: (data) => {
-      let roles = {};
-      for (let r of JSON.parse(data.roles)) {
-        Object.assign(roles, r);
-      }
-
-      data.roles = roles;
-      data.makeRolePrediction = makeRolePrediction;
-    },
-  });
-  const { handleClick, closePopover } = popoverProps;
-
-  const makeRolePrediction = useCallback(
-    (prediction) => {
-      toggleRolePrediction(playerId, prediction);
-      closePopover();
-    },
-    [playerId]
-  );
-
-  return (
-    <>
-      <InfoPopover {...popoverProps} title={"Mark Role as"} />
-      <div
-        className="role-marker"
-        onClick={handleClick}
-        ref={roleMarkerRef}
-        style={{
-          cursor: "pointer",
-        }}
-      >
-        <i className="fas fa-user-edit"></i>
-      </div>
-    </>
   );
 }
 
