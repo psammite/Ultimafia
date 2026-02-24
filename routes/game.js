@@ -134,8 +134,13 @@ router.get("/list", async function (req, res) {
 
     var end = start + constants.lobbyPageSize;
 
+    const canSeePrivate =
+      userId && (await routeUtils.verifyPermission(userId, "breakGame"));
+
     if (listName == "all" || listName == "open") {
-      var openGames = await redis.getOpenPublicGames();
+      var openGames = canSeePrivate
+        ? await redis.getOpenGames()
+        : await redis.getOpenPublicGames();
       openGames.sort((a, b) => {
         return routeUtils.scoreGame(b) - routeUtils.scoreGame(a);
       });
@@ -143,7 +148,9 @@ router.get("/list", async function (req, res) {
     }
 
     if (listName == "all" || listName == "in progress") {
-      var inProgressGames = await redis.getInProgressPublicGames();
+      var inProgressGames = canSeePrivate
+        ? await redis.getInProgressGames()
+        : await redis.getInProgressPublicGames();
       inProgressGames.sort((a, b) => b.startTime - a.startTime);
       games = games.concat(inProgressGames);
     }
@@ -179,6 +186,7 @@ router.get("/list", async function (req, res) {
       newGame.noVeg = game.settings.noVeg;
       newGame.anonymousGame = game.settings.anonymousGame;
       newGame.anonymousDeck = game.settings.anonymousDeck;
+      newGame.private = game.settings.private;
       newGame.status = game.status;
       newGame.lobby = game.lobby;
       newGame.endTime = 0;
