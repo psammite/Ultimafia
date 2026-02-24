@@ -928,14 +928,19 @@ export default function Profile() {
                 isMarried={isMarried}
                 onClick={onMarryUserClick}
               />
-              <IconButton aria-label="block user">
-                <i
-                  className={`fas fa-ban ${isBlocked ? "sel" : ""}`}
-                  onClick={onBlockUserClick}
-                  title="Block user"
-                />
+              <IconButton
+                aria-label="block user"
+                onClick={onBlockUserClick}
+                title="Block user"
+                sx={{ cursor: "pointer", touchAction: "manipulation" }}
+              >
+                <i className={`fas fa-ban ${isBlocked ? "sel" : ""}`} />
               </IconButton>
-              <IconButton size="small" onClick={onReportClick}>
+              <IconButton
+                size="small"
+                onClick={onReportClick}
+                sx={{ cursor: "pointer", touchAction: "manipulation" }}
+              >
                 <i className="fas fa-flag" />
               </IconButton>
               <ReportDialog

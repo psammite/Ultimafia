@@ -236,9 +236,8 @@ export default function AdminVisuals({ profileUserId }) {
               onClick={onActiveBansClick}
             >
               <i
-                className="fas fa-gavel"
+                className="fas fa-ban"
                 style={{
-                  color: "#ed6c02",
                   opacity: activeBans.length > 0 ? 1 : 0.35,
                 }}
               />
@@ -252,7 +251,7 @@ export default function AdminVisuals({ profileUserId }) {
               aria-label="view linked accounts"
               onClick={onAltAccountsClick}
             >
-              <i className="fas fa-users" />
+              <i className="fas fa-link" />
             </IconButton>
           </Tooltip>
         )}
