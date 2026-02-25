@@ -64,8 +64,7 @@ export default function Volunteer() {
       </Typography>
       <Typography variant="body2" color="text.secondary" paragraph>
         Interested in joining the UltiMafia staff team? Fill out the form
-        below to submit your application. Your username will be sent
-        automatically with your submission.
+        below to submit your application.
       </Typography>
 
       <Paper sx={{ p: 3, maxWidth: 560 }}>
@@ -77,7 +76,6 @@ export default function Volunteer() {
             onChange={(e) => setAge(e.target.value)}
             fullWidth
             inputProps={{ min: 13, max: 100 }}
-            helperText="You must be at least 13 years old to apply."
             disabled={!user.loggedIn || submitting}
           />
           <TextField

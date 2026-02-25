@@ -292,10 +292,44 @@ function Overview({ roundInfo, seasonInfo }) {
 
 function GameHistory({ roundInfo }) {
   const isPhoneDevice = useIsPhoneDevice();
+  const [playerFilter, setPlayerFilter] = useState("");
+
+  // Parse "player1, player2" and resolve to userIds from round participants
+  const getFilterUserIds = () => {
+    const parts = playerFilter.split(",").map((s) => s.trim()).filter(Boolean);
+    if (parts.length !== 2) return null;
+    const users = roundInfo?.users || {};
+    const matchedIds = [];
+    const usedIds = new Set();
+    for (const part of parts) {
+      const lower = part.toLowerCase();
+      const found = Object.entries(users).find(
+        ([id, data]) =>
+          data?.user?.name &&
+          data.user.name.toLowerCase().includes(lower) &&
+          !usedIds.has(id)
+      );
+      if (found) {
+        matchedIds.push(found[0]);
+        usedIds.add(found[0]);
+      }
+    }
+    return matchedIds.length === 2 ? matchedIds : null;
+  };
+
+  const filterUserIds = getFilterUserIds();
+  let gameCompletionsFiltered = roundInfo?.gameCompletions || [];
+  if (filterUserIds) {
+    const [id1, id2] = filterUserIds;
+    gameCompletionsFiltered = gameCompletionsFiltered.filter((gc) => {
+      const playerIds = new Set(gc.pointsEarnedByPlayers.map((p) => String(p.userId)));
+      return playerIds.has(String(id1)) && playerIds.has(String(id2));
+    });
+  }
 
   let currentRoundGamesByDay = {};
   if (roundInfo) {
-    for (let gameCompletion of roundInfo.gameCompletions) {
+    for (let gameCompletion of gameCompletionsFiltered) {
       if (currentRoundGamesByDay[gameCompletion.day] === undefined) {
         currentRoundGamesByDay[gameCompletion.day] = [];
       }
@@ -305,6 +339,16 @@ function GameHistory({ roundInfo }) {
 
   return (
     <Stack direction="column" spacing={1}>
+      <SearchBar
+        value={playerFilter}
+        placeholder="Search for games with 2 players"
+        onInput={setPlayerFilter}
+      />
+      {filterUserIds && (
+        <Typography variant="body2" color="text.secondary">
+          Showing {gameCompletionsFiltered.length} game(s) with both players
+        </Typography>
+      )}
       {Object.keys(currentRoundGamesByDay).map((day) => (
         <Stack direction="column" spacing={1} key={day}>
           <Typography variant="h3">Day {day}</Typography>
