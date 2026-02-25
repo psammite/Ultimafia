@@ -124,6 +124,7 @@ function getTabValue(pathname) {
   if (pathname.includes("/competitive")) return "competitive";
   if (pathname.includes("/handbook")) return "handbook";
   if (pathname.includes("/flagged-intake")) return "flagged-intake";
+  if (pathname.includes("/volunteer")) return "volunteer";
   return "log";
 }
 
@@ -165,6 +166,7 @@ export default function Moderation() {
     else if (newValue === "competitive") navigate(`${base}/competitive`);
     else if (newValue === "handbook") navigate(`${base}/handbook`);
     else if (newValue === "flagged-intake") navigate(`${base}/flagged-intake`);
+    else if (newValue === "volunteer") navigate(`${base}/volunteer`);
   };
 
   return (
@@ -176,6 +178,7 @@ export default function Moderation() {
       >
         <Tab label="Moderation Log" value="log" />
         <Tab label="Staff Handbook" value="handbook" />
+        <Tab label="Volunteer" value="volunteer" />
         {user?.perms?.viewModActions && (
           <Tab label="Reports" value="reports" />
         )}

@@ -32,6 +32,7 @@ if (process.env.NODE_ENV.includes("development")) {
     favSetup: 500,
     fileReport: 5 * 60 * 100,
     fileAppeal: 5 * 60 * 100,
+    staffApplication: 24 * 60 * 60 * 100,
   };
 } else {
   rates = {
@@ -47,6 +48,7 @@ if (process.env.NODE_ENV.includes("development")) {
     favSetup: 500,
     fileReport: 5 * 60 * 1000,
     fileAppeal: 5 * 60 * 1000,
+    staffApplication: 24 * 60 * 60 * 1000,
   };
 }
 

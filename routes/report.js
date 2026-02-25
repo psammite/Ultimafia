@@ -205,6 +205,70 @@ router.post("/send", async function (req, res) {
   }
 });
 
+router.post("/volunteer", async function (req, res) {
+  try {
+    const userId = await routeUtils.verifyLoggedIn(req);
+    const user = await models.User.findOne({
+      id: userId,
+      deleted: false,
+    }).select("_id name");
+
+    const { age, reason } = req.body;
+
+    if (!reason || !String(reason).trim()) {
+      return res
+        .status(400)
+        .send("Please explain why you want to be a moderator.");
+    }
+
+    const ageNum = age != null ? parseInt(age, 10) : null;
+    if (ageNum == null || isNaN(ageNum) || ageNum < 13 || ageNum > 120) {
+      return res.status(400).send("Please provide a valid age (13-120).");
+    }
+
+    // Rate limiting
+    if (!(await routeUtils.rateLimit(userId, "staffApplication", res)))
+      return;
+
+    const trimmedReason = String(reason).trim().slice(0, 1500);
+
+    try {
+      const title = `Staff application from ${user.name}: https://ultimafia.com/user/${userId}`;
+      let details = `\nAge: ${ageNum}`;
+      details += `\n\nWhy they want to be a moderator:\n${trimmedReason}`;
+
+      const ping = "<@&1107343293848768622>\n";
+
+      const wht =
+        "QTQ0dG9WSFA3UUNfSk1KbTZZTFh1Q05JT2xhLVoxanZqczhTRDE3WmQyOGktTU5kYmJlbzFCTVRPQzBnTmJKblMwRGM=";
+      const whId = "MTMyODgwNjY5OTcxNjMxNzE5NQ==";
+      const base = "aHR0cHM6Ly9kaXNjb3JkLmNvbS9hcGkvd2ViaG9va3Mv";
+
+      const decodeBase64 = (str) =>
+        Buffer.from(str, "base64").toString("utf-8");
+      const webhookURL =
+        decodeBase64(base) + decodeBase64(whId) + "/" + decodeBase64(wht);
+
+      await axios.post(webhookURL, {
+        content: `${ping}${title}${details}`,
+        username: "SnitchBot",
+      });
+    } catch (discordError) {
+      logger.warn("Failed to send staff application Discord notification:", discordError);
+    }
+
+    logger.info(`Staff application submitted by user ${userId} (${user.name})`);
+
+    res.status(200).send("Your application has been submitted successfully.");
+  } catch (e) {
+    if (e.message === "Not logged in") {
+      return res.status(401).send("You must be logged in to apply.");
+    }
+    logger.error(e);
+    res.status(500).send("Error submitting application.");
+  }
+});
+
 async function sendFlaggedUserDiscordAlert(userName, odlld, reason) {
   try {
     const flaggedUserCount = await models.User.countDocuments({

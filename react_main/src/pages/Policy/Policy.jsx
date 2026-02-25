@@ -11,6 +11,7 @@ import Reports from "./Reports";
 import CompetitiveManagement from "./Moderation/CompetitiveManagement";
 import StaffHandbook from "./Moderation/StaffHandbook";
 import FlaggedIntake from "./Moderation/FlaggedIntake";
+import Volunteer from "./Moderation/Volunteer";
 
 function ReportsRedirect() {
   const location = useLocation();
@@ -43,6 +44,7 @@ export default function Policy() {
           <Route path="competitive" element={<CompetitiveManagement />} />
           <Route path="handbook" element={<StaffHandbook />} />
           <Route path="flagged-intake" element={<FlaggedIntake />} />
+          <Route path="volunteer" element={<Volunteer />} />
         </Route>
         <Route path="reports/*" element={<ReportsRedirect />} />
         <Route path="*" element={<Navigate to="rules" />} />
