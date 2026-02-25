@@ -162,6 +162,9 @@ export default function MafiaGame() {
           case "Matchmaker":
             game.playAudio("music/NightWinter");
             break;
+          case "Penguin":
+            game.playAudio("music/NightPenguin");
+            break;
           case "Fiddler":
             game.playAudio("music/NightFiddler");
             break;
@@ -246,6 +249,9 @@ export default function MafiaGame() {
           case "Emperor":
           case "Politician":
             game.playAudio("music/NightPolitic");
+            break;
+          case "Executioner":
+            game.playAudio("music/NightExecutioner");
             break;
           default:
             if (currentAlignment === "Mafia") {
