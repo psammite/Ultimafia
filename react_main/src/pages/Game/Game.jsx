@@ -631,6 +631,14 @@ export default function Game() {
     });
 
     socket.on("roleReveal", (info) => {
+      const appearance = info.role || "";
+      const roleName = appearance.split(":")[0];
+      const modPart = appearance.split(":")[1];
+      const roleData = {
+        roleName,
+        modifiers: modPart ? modPart.split("/") : [],
+      };
+
       // Only show modal if this is for the current player and game type supports it
       if (
         info.playerId === selfRef.current &&
@@ -638,7 +646,7 @@ export default function Game() {
           gameType === "Resistance" ||
           gameType === "Secret Dictator")
       ) {
-        setRoleRevealData(info.roleData);
+        setRoleRevealData(roleData);
         setRoleRevealModalOpen(true);
       }
 
@@ -2786,6 +2794,11 @@ export function PlayerRows({ players, className = "" }) {
   } = game;
 
   const prevStateRef = useRef(history?.currentState);
+  const historyRef = useRef(history);
+
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
 
   // Track when the current state changes (not stateViewing, but the actual game state)
   useEffect(() => {
@@ -2814,10 +2827,30 @@ export function PlayerRows({ players, className = "" }) {
         const now = Date.now();
         activityUpdateTimeRef.current[info.playerId] = now;
 
+        const h = historyRef.current;
+        const isTyping =
+          info.isTyping !== undefined
+            ? Boolean(info.isTyping)
+            : info.meetingId != null;
+
+        let meetingId = null;
+        if (isTyping) {
+          if (
+            Number.isInteger(info.meetingIndex) &&
+            h?.states?.[h.currentState]?.meetings
+          ) {
+            const keys = Object.keys(h.states[h.currentState].meetings);
+            meetingId = keys[info.meetingIndex] ?? null;
+          } else if (info.meetingId != null) {
+            meetingId = info.meetingId;
+          }
+          if (!meetingId) return;
+        }
+
         updateActivity({
           type: "typing",
           playerId: info.playerId,
-          meetingId: info.meetingId,
+          meetingId,
         });
       });
     }
