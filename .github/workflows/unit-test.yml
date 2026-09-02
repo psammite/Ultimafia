@@ -60,6 +60,8 @@ jobs:
         run: npm list
       - name: Install Packages
         run: npm install
+      - name: Type Check Backend
+        run: npm run typecheck
       - name: Unit Test
         run: npm run test
         env:

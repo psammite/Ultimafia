@@ -1,3 +1,5 @@
+// Load migrated TypeScript routes when started directly or through PM2/Docker.
+require("tsx/cjs");
 const path = require("path");
 const dotenv = require("dotenv").config({ path: path.join(__dirname, ".env") });
 const createError = require("http-errors");

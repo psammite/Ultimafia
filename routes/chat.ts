@@ -1,14 +1,39 @@
-const express = require("express");
-const routeUtils = require("./utils");
-const redis = require("../modules/redis");
-const constants = require("../data/constants");
-const models = require("../db/models");
-const shortid = require("shortid");
-const logger = require("../modules/logging")(".");
-const errors = require("../lib/errors");
+import express = require("express");
+import type { Model } from "mongoose";
+import routeUtils = require("./utils");
+import redis = require("../modules/redis");
+import constants = require("../data/constants");
+import shortid = require("shortid");
+import createLogger = require("../modules/logging");
+import errors = require("../lib/errors");
+
+// The legacy model registry is populated dynamically. Describe only the models
+// used by this pilot; keep these fields aligned with db/schemas.js.
+interface ChatChannel {
+  id: string;
+  name: string;
+  position: number;
+  rank: number;
+  public: boolean;
+  lastMessageDate: number;
+}
+
+const models: {
+  ChatChannel: Model<ChatChannel>;
+  ChatMessage: Model<{ channel: string }>;
+} = require("../db/models");
+
+// Bodies are untrusted; existing parsing below preserves the endpoint behavior.
+interface RoomBody {
+  name?: unknown;
+  position?: unknown;
+  rank?: unknown;
+}
+
+const logger = createLogger(".");
 const router = express.Router();
 
-router.get("/connect", async function (req, res) {
+router.get<{}, string>("/connect", async function (req, res) {
   try {
     var userId = await routeUtils.verifyLoggedIn(req, true);
 
@@ -25,9 +50,9 @@ router.get("/connect", async function (req, res) {
   }
 });
 
-router.post("/room", async function (req, res) {
+router.post<{}, string, RoomBody>("/room", async function (req, res) {
   try {
-    var userId = await routeUtils.verifyLoggedIn(req);
+    var userId = await routeUtils.verifyLoggedIn(req, false);
     var perm = "createRoom";
 
     if (!(await routeUtils.verifyPermission(res, userId, perm))) return;
@@ -65,9 +90,9 @@ router.post("/room", async function (req, res) {
   }
 });
 
-router.post("/room/delete", async function (req, res) {
+router.post<{}, string, Pick<RoomBody, "name">>("/room/delete", async function (req, res) {
   try {
-    var userId = await routeUtils.verifyLoggedIn(req);
+    var userId = await routeUtils.verifyLoggedIn(req, false);
     var name = routeUtils.strParseAlphaNum(req.body.name);
     var perm = "deleteRoom";
 
@@ -94,4 +119,4 @@ router.post("/room/delete", async function (req, res) {
   }
 });
 
-module.exports = router;
+export = router;
