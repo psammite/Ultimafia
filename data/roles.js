@@ -2927,10 +2927,6 @@ const roleData = {
           value: "vivid",
         },
         {
-          label: "Old",
-          value: "old",
-        },
-        {
           label: "Halloween",
           value: "halloween",
         },
