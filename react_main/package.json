@@ -21,6 +21,7 @@
     "fullcalendar": "^6.1.19",
     "immutability-helper": "^3.0.2",
     "mui-color-input": "^6.0.0",
+    "qrcode.react": "^4.2.0",
     "react": "^17.0.0",
     "react-color": "^2.18.0",
     "react-dom": "^17.0.1",
@@ -47,6 +48,7 @@
     }
   },
   "scripts": {
+    "perf:chat": "rsbuild build --config rsbuild.chat-perf.config.ts && rsbuild preview --config rsbuild.chat-perf.config.ts",
     "start": "rsbuild dev",
     "build": "rsbuild build",
     "preview": "rsbuild preview",
