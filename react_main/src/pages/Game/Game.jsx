@@ -17,6 +17,7 @@ import { UserText } from "../../components/Basic";
 import Newspaper, {
   ObituariesMessage,
 } from "../../components/gameComponents/Newspaper";
+import { newspaperPlayer } from "../../utils/newspaperPlayers";
 import MafiaGame from "./MafiaGame";
 import JottoGame from "./JottoGame";
 import AcrotopiaGame from "./AcrotopiaGame";
@@ -122,6 +123,13 @@ import ReadyCheckDialog from "./components/ReadyCheck";
 import PushNotificationPrompt from "./components/PushNotificationPrompt";
 import { releaseSubscription } from "utils/pushNotifications";
 import RoleMarkerToggle from "./components/RoleMarkerToggle";
+import { playerNameWithAvatarProps } from "./playerDisplay";
+import {
+  KudosDock,
+  KudosPanel,
+  KudosIcon,
+  kudosAwardedIds,
+} from "./components/Kudos";
 
 const emoteMap = {
   dice1: dice1,
@@ -161,6 +169,10 @@ function getOrderedPlayers(players) {
 export const GameTypeContext = createContext({
   singleState: false,
 });
+
+// urgent.mp3 does not loop (~15s). Repeat it until the failed player leaves,
+// takes a seat, refreshes, or a new ready check starts.
+const READY_CHECK_BELL_REPEAT_MS = 15000;
 
 export default function Game() {
   const user = useContext(UserContext);
@@ -206,19 +218,60 @@ export default function Game() {
   const [roleRevealData, setRoleRevealData] = useState(null);
   const [hostId, setHostId] = useState(null);
   const [changeSetupDialogOpen, setChangeSetupDialogOpen] = useState(false);
+  const [kudos, setKudos] = useState(null);
+  // Set when a participant rehosts this finished game:
+  // { gameId, hostId, hostName, setup }
+  const [rehostInvite, setRehostInvite] = useState(null);
+  // Places that can show the invite (see RehostInvite).
+  const [rehostInviteSlots, setRehostInviteSlots] = useState([]);
+  const rehostInviteSlotsRef = useRef([]);
+  rehostInviteSlotsRef.current = rehostInviteSlots;
 
   const playersRef = useRef();
+  const rehostInviteSeenRef = useRef(false);
   const selfRef = useRef();
   const noLeaveRef = useRef();
   const ignoreDeathSoundsRef = useRef(!!user?.settings?.ignoreDeathSounds);
   const deathSoundVolumeRef = useRef(1);
 
   const { playAudio, loadAudioFiles, stopAudio, stopAudios, playDeathSounds } = useAudio(settings);
+  const playAudioRef = useRef(playAudio);
+  const stopAudioRef = useRef(stopAudio);
+  const readyBellRepeatRef = useRef(null);
+  const stopReadyBellRepeatRef = useRef(() => {});
+  const startReadyBellRepeatRef = useRef(() => {});
+  playAudioRef.current = playAudio;
+  stopAudioRef.current = stopAudio;
+
+  function stopReadyBellRepeat() {
+    if (readyBellRepeatRef.current) {
+      clearInterval(readyBellRepeatRef.current);
+      readyBellRepeatRef.current = null;
+    }
+    if (stopAudioRef.current) stopAudioRef.current("urgent");
+  }
+
+  function startReadyBellRepeat() {
+    if (readyBellRepeatRef.current) {
+      clearInterval(readyBellRepeatRef.current);
+      readyBellRepeatRef.current = null;
+    }
+    if (playAudioRef.current) playAudioRef.current("urgent");
+    readyBellRepeatRef.current = setInterval(() => {
+      if (playAudioRef.current) playAudioRef.current("urgent");
+    }, READY_CHECK_BELL_REPEAT_MS);
+  }
+
+  stopReadyBellRepeatRef.current = stopReadyBellRepeat;
+  startReadyBellRepeatRef.current = startReadyBellRepeat;
+
   const siteInfo = useContext(SiteInfoContext);
   const errorAlert = useErrorAlert();
   const isPhoneDevice = useIsPhoneDevice();
   const { gameId } = useParams();
   const [selectedPanel, setSelectedPanel] = useState("chat");
+  const isPhoneDeviceRef = useRef(false);
+  isPhoneDeviceRef.current = isPhoneDevice;
 
   const isParticipant = !isSpectator && !review;
   const currentStateObject = history.states[history.currentState];
@@ -236,7 +289,21 @@ export default function Game() {
 
   function onReadyCheckVerify() {
     socket.send("readyCheck verify");
-    stopAudio("urgent");
+    stopReadyBellRepeat();
+  }
+
+  function onJoinRehostClick() {
+    if (!rehostInvite) return;
+
+    // Same leave-then-navigate dance as the Rehost button: leave this
+    // postgame lobby first so the new game accepts the join.
+    noLeaveRef.current = true;
+    if (socket.on) socket.send("leave");
+
+    setTimeout(() => {
+      window.location.href =
+        window.location.origin + `/game/${rehostInvite.gameId}`;
+    }, 500);
   }
 
   function onLeaveGameClick() {
@@ -253,6 +320,7 @@ export default function Game() {
   }
 
   function leaveGame() {
+    stopReadyBellRepeat();
     if (finished) siteInfo.hideAllAlerts();
 
     // Drop the server-side push target, but leave the browser subscription in
@@ -286,6 +354,15 @@ export default function Game() {
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (readyBellRepeatRef.current) {
+        clearInterval(readyBellRepeatRef.current);
+        readyBellRepeatRef.current = null;
+      }
     };
   }, []);
 
@@ -518,6 +595,9 @@ export default function Game() {
 
           var players = {};
           var spectators = {};
+          const kudosUserIds = (data.kudosReceivers || []).concat(
+            data.kudosReceiver ? [data.kudosReceiver] : []
+          );
 
           for (let i in data.players) {
             players[data.players[i]] = {
@@ -532,6 +612,9 @@ export default function Game() {
               customStickers:
                 data.users[i] && data.users[i].settings.customStickers,
               nameFont: data.users[i] && data.users[i].settings.nameFont,
+              avatarShape: data.anonymousGame
+                ? "circle"
+                : data.users[i] && data.users[i].settings.gameAvatarShape,
               animatedNameColor:
                 data.users[i] && data.users[i].settings.animatedNameColor,
               nameGradientColorA:
@@ -541,6 +624,8 @@ export default function Game() {
               nameGradientColorC:
                 data.users[i] && data.users[i].settings.nameGradientColorC,
               left: data.left.indexOf(data.players[i]) !== -1,
+              kudos:
+                !!data.users[i] && kudosUserIds.includes(data.users[i].id),
             };
           }
 
@@ -558,6 +643,10 @@ export default function Game() {
                 data.spectatorsUsers[i] && data.spectatorsUsers[i].settings.customStickers,
               nameFont:
                 data.spectatorsUsers[i] && data.spectatorsUsers[i].settings.nameFont,
+              avatarShape: data.anonymousGame
+                ? "circle"
+                : data.spectatorsUsers[i] &&
+                  data.spectatorsUsers[i].settings.gameAvatarShape,
               animatedNameColor:
                 data.spectatorsUsers[i] &&
                 data.spectatorsUsers[i].settings.animatedNameColor,
@@ -623,17 +712,26 @@ export default function Game() {
     }
 
     console.log("[WEBSOCKET] Successfully connected");
+
+    function joinWantsSpectate() {
+      return (
+        new URLSearchParams(window.location.search).get("spectate") === "true"
+      );
+    }
+
     if (token) socket.send("auth", token);
     else
       socket.send("join", {
         gameId,
         guestId: window.localStorage.getItem("cacheVal"),
+        spectate: joinWantsSpectate(),
       });
 
     socket.on("authSuccess", () => {
       socket.send("join", {
         gameId,
         isBot: window.location.search === "?bot",
+        spectate: joinWantsSpectate(),
       });
     });
 
@@ -655,6 +753,20 @@ export default function Game() {
     });
 
     socket.on("finished", () => setFinished(true));
+
+    socket.on("kudos", (data) => setKudos(data));
+
+    socket.on("rehosted", (info) => {
+      if (!info || !info.gameId) return;
+
+      // On phones, open the tab that shows the invite the first time.
+      if (!rehostInviteSeenRef.current && isPhoneDeviceRef.current) {
+        const inActions = rehostInviteSlotsRef.current.some((s) => s.priority === 0);
+        setSelectedPanel(inActions ? "actions" : "players");
+      }
+      rehostInviteSeenRef.current = true;
+      setRehostInvite(info);
+    });
 
     socket.on("state", (state) => {
       updateHistory({ type: "addState", state: state });
@@ -877,11 +989,14 @@ export default function Game() {
       setShowFirstGameModal(true);
     });
 
-    socket.on("isSpectator", () => {
-      setIsSpectator(true);
+    socket.on("isSpectator", (value) => {
+      const spectatingNow = value !== false;
+      setIsSpectator(spectatingNow);
+      if (!spectatingNow) stopReadyBellRepeatRef.current();
     });
 
     socket.on("left", () => {
+      stopReadyBellRepeatRef.current();
       if (!noLeaveRef.current) {
         setLeave(true);
         siteInfo.hideAllAlerts();
@@ -893,14 +1008,28 @@ export default function Game() {
       errorAlert(error);
     });
 
+    socket.on("takeSeatFailed", (message) => {
+      errorAlert(message);
+    });
+
+    socket.on("spectateFailed", (message) => {
+      errorAlert(message);
+    });
+
     socket.on("dev", () => {
       setDev(true);
     });
 
     socket.on("readyCheck init", (data) => {
+      stopReadyBellRepeatRef.current();
       const readyMap = {};
       if (data.readyPlayers) data.readyPlayers.forEach((id) => (readyMap[id] = true));
-      setReadyCheckInfo({ active: true, readyPlayers: readyMap, endTime: data.endTime });
+      setReadyCheckInfo({
+        active: true,
+        readyPlayers: readyMap,
+        endTime: data.endTime,
+        timeLeft: data.timeLeft,
+      });
       playAudio("urgent");
       setPingInfo({
         msg: `⚠ Ready Check!`,
@@ -909,13 +1038,18 @@ export default function Game() {
     });
 
     socket.on("readyCheck cancel", () => {
-      stopAudio("urgent");
+      stopReadyBellRepeatRef.current();
       setReadyCheckInfo({ active: false, readyPlayers: {}, endTime: 0 });
     });
 
     socket.on("readyCheck success", () => {
-      stopAudio("urgent");
+      stopReadyBellRepeatRef.current();
       setReadyCheckInfo({ active: false, readyPlayers: {}, endTime: 0 });
+    });
+
+    socket.on("readyCheck failed", () => {
+      setReadyCheckInfo({ active: false, readyPlayers: {}, endTime: 0 });
+      startReadyBellRepeatRef.current();
     });
 
     socket.on("readyCheck update", (data) => {
@@ -1117,13 +1251,18 @@ export default function Game() {
       stopAudio: stopAudio,
       stopAudios: stopAudios,
       noLeaveRef,
+      rehostInvite: rehostInvite,
+      onJoinRehostClick: onJoinRehostClick,
+      rehostInviteSlots: rehostInviteSlots,
+      setRehostInviteSlots: setRehostInviteSlots,
       dev: dev,
       hostId: hostId,
       changeSetupDialogOpen: changeSetupDialogOpen,
       setChangeSetupDialogOpen: setChangeSetupDialogOpen,
       spectators: spectators,
       setSpectators: setSpectators,
-      readyCheckInfo: readyCheckInfo
+      readyCheckInfo: readyCheckInfo,
+      kudos: review ? null : kudos,
     };
 
     const isUrgent = voteKickUrgency || (readyCheckInfo.active && !readyCheckInfo.readyPlayers[self]);
@@ -1172,9 +1311,11 @@ export default function Game() {
         {!review && history.currentState == -1 && (
           <PushNotificationPrompt socket={socket} />
         )}
+        {!isPhoneDevice && <PregameSeatActions />}
         <ReadyCheckDialog
           open={readyCheckInfo.active && !readyCheckInfo.readyPlayers[self]}
           endTime={readyCheckInfo.endTime}
+          timeLeft={readyCheckInfo.timeLeft}
           onReady={onReadyCheckVerify}
           onLeave={leaveGame}
         />
@@ -1217,6 +1358,80 @@ export default function Game() {
   }
 }
 
+/**
+ * Shown to everyone left in the postgame lobby when someone rehosts: the new
+ * game's setup card, and a "Leave & Join New Game" button under it that leaves
+ * this game and joins the new one.
+ *
+ * It is rendered inline in exactly one place per layout. Candidates register
+ * with a priority and the best one wins:
+ *   0 - the main action list (Mafia etc.: right under the kudos vote)
+ *   1 - a filtered action list (games whose action list only holds kicks)
+ *   2 - the bottom of the player list (games without an action list)
+ */
+function RehostInvite({ priority = 0 }) {
+  const game = useContext(GameContext);
+  const invite = game.rehostInvite;
+  const setup = (invite && invite.setup) || game.setup;
+  const { rehostInviteSlots, setRehostInviteSlots } = game;
+  const slotId = useRef(null);
+
+  if (slotId.current === null) slotId.current = ++rehostInviteSlotCounter;
+
+  useEffect(() => {
+    if (!setRehostInviteSlots) return;
+
+    const slot = { id: slotId.current, priority };
+    setRehostInviteSlots((slots) => [...slots, slot]);
+    return () =>
+      setRehostInviteSlots((slots) => slots.filter((s) => s.id !== slot.id));
+  }, [priority, setRehostInviteSlots]);
+
+  if (!invite || game.review) return null;
+
+  const best = (rehostInviteSlots || []).reduce(
+    (a, b) =>
+      !a || b.priority < a.priority || (b.priority === a.priority && b.id < a.id)
+        ? b
+        : a,
+    null
+  );
+  if (!best || best.id !== slotId.current) return null;
+
+  return (
+    <Stack
+      spacing={1}
+      data-testid="rehost-invite"
+      sx={{ p: 1, mt: 1, minWidth: 0, border: 2, borderColor: "primary.main", borderRadius: 1 }}
+    >
+      {setup && (
+        <Box sx={{ minWidth: 0 }}>
+          <Setup setup={setup} />
+        </Box>
+      )}
+      <Button
+        variant="contained"
+        color="primary"
+        size="large"
+        fullWidth
+        data-testid="rehost-join"
+        onClick={game.onJoinRehostClick}
+        startIcon={<i className="fas fa-sign-in-alt" />}
+        sx={{ minHeight: 48, fontWeight: 700 }}
+      >
+        Leave & Join New Game
+      </Button>
+      {invite.hostName && (
+        <Typography variant="caption" sx={{ opacity: 0.7, textAlign: "center" }}>
+          Rehosted by {invite.hostName}
+        </Typography>
+      )}
+    </Stack>
+  );
+}
+
+let rehostInviteSlotCounter = 0;
+
 export function useSocketListeners(listeners, socket) {
   useEffect(() => {
     if (!socket.on) return;
@@ -1257,11 +1472,18 @@ export function TopBar({ forceShow = false } = {}) {
           gameType: game.gameType,
           setup: game.setup.id,
           lobby: game.options.lobby,
+          lobbyName: game.options.lobbyName,
           private: game.options.private,
           spectating: game.options.spectating,
           guests: game.options.guests,
           ranked: game.options.ranked,
           competitive: game.options.competitive,
+          readyCheck: game.options.readyCheck,
+          noVeg: game.options.noVeg,
+          anonymousGame: game.options.anonymousGame,
+          anonymousDeckId: (game.options.anonymousDeck || [])
+            .map((deck) => deck.id)
+            .join(","),
           stateLengths: stateLengths,
           ...game.options.gameTypeOptions,
         })
@@ -1658,8 +1880,68 @@ function getDefaultSpeechMeetingId(speechMeetings) {
 
 const EMPTY_CHAT_STATE = { meetings: {}, alerts: [], obituaries: {} };
 
+function settingIsTrueValue(value) {
+  return value === true || value === "true";
+}
+
+// Desktop renders this under the chat. On a phone that spot is below the
+// viewport, under the bottom nav, so the compact variant sits in the chat.
+function PregameSeatActions({ compact = false }) {
+  const { review, history, isSpectator, socket, options, gameId } =
+    useContext(GameContext);
+
+  if (review || !history || history.currentState != -1) return null;
+
+  const showJoin = !!isSpectator;
+  const showSpectate =
+    !isSpectator && settingIsTrueValue(options && options.spectating);
+  if (!showJoin && !showSpectate) return null;
+
+  return (
+    <Box
+      sx={
+        compact
+          ? {
+              display: "flex",
+              flexShrink: 0,
+              width: "100%",
+              boxSizing: "border-box",
+              px: 1.25,
+              py: 0.5,
+            }
+          : { display: "flex", justifyContent: "center", p: 1 }
+      }
+    >
+      {showJoin ? (
+        <Button
+          variant="contained"
+          fullWidth={compact}
+          size={compact ? "small" : "medium"}
+          onClick={() => {
+            if (socket && socket.on) socket.send("takeSeat");
+          }}
+        >
+          Join open seat
+        </Button>
+      ) : (
+        <Button
+          variant="outlined"
+          fullWidth={compact}
+          size={compact ? "small" : "medium"}
+          onClick={() => {
+            window.location.assign(`/game/${gameId}?spectate=true`);
+          }}
+        >
+          Spectate
+        </Button>
+      )}
+    </Box>
+  );
+}
+
 export function TextMeetingLayout() {
   const game = useContext(GameContext);
+  const isPhoneDevice = useIsPhoneDevice();
   const { singleState } = useContext(GameTypeContext);
   const { isolationEnabled, isolatedPlayers, isSpectator } = game;
   const { history, players, stateViewing, updateHistory, settings, filters, spectators } =
@@ -1834,7 +2116,12 @@ export function TextMeetingLayout() {
           history={history}
           players={players}
           spectators={spectators}
-          stateViewing={stateViewing}
+          stateViewing={
+            singleState && !message.obituaries && !message.winners
+              ? rowStateClass(stateViewing)
+              : stateViewing
+          }
+          meetingState={singleState ? message.fromState : stateViewing}
           key={message.id || message.messageId + message.time || i}
           onMessageQuote={game.onMessageQuote}
           onPinMessage={game.onPinMessage}
@@ -1941,11 +2228,14 @@ export function TextMeetingLayout() {
       <div className="speech-wrapper">
         <div
           className="speech-display"
+          data-name-animation-viewport
           onScroll={onSpeechScroll}
           ref={speechDisplayRef}
         >
           {messages}
         </div>
+        {isPhoneDevice && <PregameSeatActions compact />}
+        <KudosDock onResize={doAutoScroll} />
         {canSpeak && (
           <SpeechInput
             meetings={meetings}
@@ -1965,7 +2255,9 @@ export function TextMeetingLayout() {
   );
 }
 
-function getAllMessagesToDisplay(history) {
+const stateMessagesCache = new WeakMap();
+
+export function getAllMessagesToDisplay(history) {
   var messages = [];
   var postgameWinnersMessages = [];
   const states = Object.keys(history.states).sort(
@@ -1983,6 +2275,14 @@ function getAllMessagesToDisplay(history) {
       continue;
     }
 
+    const cached = stateMessagesCache.get(stateData);
+    if (cached) {
+      messages.push(...cached.messages);
+      if (cached.postgameWinners) postgameWinnersMessages.push(cached.postgameWinners);
+      continue;
+    }
+
+    let postgameWinners = null;
     let stateMessages = [];
     for (let meeting in stateMeetings) {
       var meetingData = stateMeetings[meeting];
@@ -2013,6 +2313,7 @@ function getAllMessagesToDisplay(history) {
         senderId: "server",
       };
       if (state === "-2") {
+        postgameWinners = winnersMessage;
         postgameWinnersMessages.push(winnersMessage);
       } else {
         stateMessages.push(winnersMessage);
@@ -2020,6 +2321,10 @@ function getAllMessagesToDisplay(history) {
     }
 
     stateMessages.sort((a, b) => a.time - b.time);
+    stateMessagesCache.set(stateData, {
+      messages: stateMessages,
+      postgameWinners,
+    });
     messages.push(...stateMessages);
   }
 
@@ -2205,16 +2510,21 @@ function getContentClasses(message) {
  */
 export const IsPhoneDeviceContext = createContext(false);
 
+export function rowStateClass(stateViewing) {
+  return stateViewing > 0 ? 1 : stateViewing;
+}
+
 function Message(props) {
-  const { history, isMessagePinned, ...rowProps } = props;
+  const { history, isMessagePinned, meetingState, ...rowProps } = props;
   const { message, stateViewing } = props;
+  const nameState = meetingState ?? stateViewing;
   // History changes on every append. Only quotes and summary rows need it;
   // ordinary rows depend on the meeting's name, not its growing message array.
   return (
     <MessageRow
       {...rowProps}
       pinned={isMessagePinned(message)}
-      meetingName={history.states[stateViewing]?.meetings?.[message.meetingId]?.name}
+      meetingName={history.states[nameState]?.meetings?.[message.meetingId]?.name}
       quoteState={message.isQuote ? history.states[message.fromState] : undefined}
       history={message.obituaries || message.winners ? history : undefined}
     />
@@ -2518,6 +2828,7 @@ const MessageRow = React.memo(function MessageRow(props) {
                 avatarId={avatarId}
                 name={player.name}
                 avatar={player.avatar}
+                isSquare={player.avatarShape === "square"}
                 color={resolveDisplayNameColor({
                   accessibleNameColors,
                   ignoreTextColor: user.settings?.ignoreTextColor,
@@ -2671,15 +2982,7 @@ function WinnersMessage(props) {
           }
         })
         .filter(Boolean) // Remove undefined/null players
-        .map((player) => ({
-          id: player.userId || player.id,
-          name: player.name,
-          avatar: player.avatar !== undefined ? player.avatar : true,
-          avatarId:
-            player.anonId === undefined
-              ? player.userId || player.id
-              : player.anonId,
-        }));
+        .map(newspaperPlayer);
 
       return {
         group: group,
@@ -2706,13 +3009,7 @@ function WinnersMessage(props) {
 
     return groupPlayers.length > 0
       ? groupPlayers.map((player) => ({
-          id: player.userId || player.id,
-          name: player.name,
-          avatar: player.avatar,
-          avatarId:
-            player.anonId === undefined
-              ? player.userId || player.id
-              : player.anonId,
+          ...newspaperPlayer(player),
           deathMessage: groupMessage,
           revealMessage: `${player.name} was a member of the ${group}.`,
           lastWill: "",
@@ -3256,8 +3553,10 @@ export function PlayerRows({ players, className = "", renderMarker, renderRowEnd
     isolationEnabled,
     togglePlayerIsolation,
     isolatedPlayers,
-    readyCheckInfo
+    readyCheckInfo,
+    kudos,
   } = game;
+  const kudosIds = kudosAwardedIds(kudos);
 
   const prevStateRef = useRef(history?.currentState);
 
@@ -3422,11 +3721,6 @@ export function PlayerRows({ players, className = "", renderMarker, renderRowEnd
       }
     }
 
-    let avatarId;
-    if (player !== undefined) {
-      avatarId = player.anonId === undefined ? player.userId : player.anonId;
-    }
-
     const readyCheck = readyCheckInfo?.active;
     const isReady = readyCheck && readyCheckInfo.readyPlayers[player.id];
 
@@ -3466,34 +3760,48 @@ export function PlayerRows({ players, className = "", renderMarker, renderRowEnd
             </>
           )
         )}
-        <NameWithAvatar
-          id={player.userId}
-          avatarId={avatarId}
-          name={player.name}
-          avatar={player.avatar}
-          dead={className === "dead"}
-          color={resolveDisplayNameColor({
-            accessibleNameColors,
-            ignoreTextColor: user.settings?.ignoreTextColor,
-            rawNameColor: player.nameColor,
-            autoContrastColor: user.autoContrastColor.bind(user),
-            theme,
-          })}
-          nameColorSwatch={
-            accessibleNameColors && player.nameColor
-              ? player.nameColor
-              : undefined
-          }
-          nameFont={player.nameFont}
-          animatedNameColor={player.animatedNameColor}
-          nameGradientColorA={player.nameGradientColorA}
-          nameGradientColorB={player.nameGradientColorB}
-          nameGradientColorC={player.nameGradientColorC}
-          active={activity.speaking[player.id]}
-          noLink={stateViewing >= 0 && game.options.anonymousGame}
-          includeMiniprofile
-          newTab
-        />
+        {(() => {
+          const nameWithAvatar = (
+            <NameWithAvatar
+              {...playerNameWithAvatarProps(player, {
+                user,
+                theme,
+                square: true,
+              })}
+              dead={className === "dead"}
+              active={activity.speaking[player.id]}
+              noLink={stateViewing >= 0 && game.options.anonymousGame}
+              includeMiniprofile
+              newTab
+            />
+          );
+          if (!player.kudos && !kudosIds.includes(player.id))
+            return nameWithAvatar;
+          // Kudos badge on the avatar's bottom-right corner.
+          return (
+            <Box
+              sx={{
+                position: "relative",
+                display: "flex",
+                alignItems: "center",
+                flexGrow: 1,
+                minWidth: 0,
+              }}
+            >
+              {nameWithAvatar}
+              <KudosIcon
+                size={18}
+                sx={{
+                  position: "absolute",
+                  left: 26,
+                  bottom: -2,
+                  borderRadius: "50%",
+                  backgroundColor: "background.paper",
+                }}
+              />
+            </Box>
+          );
+        })()}
         {selTab && showBubbles && visibleTyping[player.id] === selTab && (
           <ReactLoading
             className={`typing-icon ${stateViewing != -1 ? "has-role" : ""}`}
@@ -3608,6 +3916,7 @@ export function PlayerList(props) {
             renderMarker={renderMarker}
             renderRowEnd={renderRowEnd}
           />
+          <RehostInvite priority={2} />
         </div>
       }
     />
@@ -3824,8 +4133,17 @@ export function ActionList({
     }
   }
 
-  if (hideIfEmpty && (!regularActionDescriptors || regularActionDescriptors.length === 0)) {
-    return null;
+  // "Kudos Awarded:" list at the top of the (main) Actions panel, shown only
+  // once someone has been awarded kudos.
+  const showKudos = !bare && kudosAwardedIds(game.kudos).length > 0;
+
+  if (
+    hideIfEmpty &&
+    !showKudos &&
+    (!regularActionDescriptors || regularActionDescriptors.length === 0)
+  ) {
+    // Kick-only lists still host the rehost invite in games without a main list
+    return bare ? null : <RehostInvite priority={1} />;
   }
 
   const actionElements = (regularActionDescriptors || []).map(
@@ -3846,7 +4164,13 @@ export function ActionList({
       title={
         <UnresolvedActionCount>{title || "Actions"}</UnresolvedActionCount>
       }
-      content={<div className="action-list">{actionElements}</div>}
+      content={
+        <div className="action-list">
+          {showKudos && <KudosPanel />}
+          {actionElements}
+          <RehostInvite priority={meetingFilter ? 1 : 0} />
+        </div>
+      }
     />
   );
 }
@@ -5731,6 +6055,11 @@ export function Notes() {
   );
 }
 
+function selTabName(state) {
+  if (!state || !state.selTab || !state.meetings) return state?.carrySelTabName;
+  return state.meetings[state.selTab]?.name;
+}
+
 export function useHistoryReducer() {
   return useReducer(
     (history, action) => {
@@ -5769,11 +6098,24 @@ export function useHistoryReducer() {
                     dead: { ...history.states[prevState].dead },
                     exorcised: { ...history.states[prevState].exorcised },
                     extraInfo: { ...action.state.extraInfo },
+                    carrySelTabName: selTabName(history.states[prevState]),
                   },
                 },
               },
               currentState: {
                 $set: Number.parseInt(action.state.id),
+              },
+            });
+          } else if (
+            action.state.extraInfo &&
+            !action.state.winners &&
+            history.states[action.state.id]
+          ) {
+            return update(history, {
+              states: {
+                [action.state.id]: {
+                  extraInfo: { $set: { ...action.state.extraInfo } },
+                },
               },
             });
           } else if (action.state.winners && history.states[action.state.id]) {
@@ -5797,6 +6139,11 @@ export function useHistoryReducer() {
           let state = history.states[history.currentState];
 
           if (state) {
+            const carryTab =
+              !state.selTab &&
+              action.meeting.speech &&
+              state.carrySelTabName &&
+              state.carrySelTabName === action.meeting.name;
             return update(history, {
               states: {
                 [history.currentState]: {
@@ -5805,6 +6152,7 @@ export function useHistoryReducer() {
                       $set: action.meeting,
                     },
                   },
+                  ...(carryTab ? { selTab: { $set: action.meeting.id } } : {}),
                 },
               },
             });

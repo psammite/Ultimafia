@@ -2,11 +2,16 @@ const express = require("express");
 const constants = require("../data/constants");
 const models = require("../db/models");
 const routeUtils = require("./utils");
+const gameListPaging = require("./gameListPaging");
 const utils = require("../lib/Utils");
 const redis = require("../modules/redis");
 const gameLoadBalancer = require("../modules/gameLoadBalancer");
+const rehost = require("../modules/rehost");
 const logger = require("../modules/logging")(".");
 const router = express.Router();
+
+// Extra finished rows fetched per page so a repeated id can be dropped.
+const FINISHED_DEDUPE_SLACK = 5;
 const axios = require("axios");
 const errors = require("../lib/errors");
 
@@ -182,11 +187,29 @@ router.get("/openCounts", async function (req, res) {
   }
 });
 
+// Returns true if either user has blocked the other.
+async function usersBlockEachOther(userId, otherId, cache) {
+  if (!userId || !otherId || userId == otherId) return false;
+  const get = async (id) => {
+    if (cache && cache.has(id)) return cache.get(id);
+    const list = (await redis.getBlockedUsers(id)) || [];
+    if (cache) cache.set(id, list);
+    return list;
+  };
+  const [mine, theirs] = await Promise.all([get(userId), get(otherId)]);
+  return mine.includes(otherId) || theirs.includes(userId);
+}
+
 router.get("/list", async function (req, res) {
   res.setHeader("Content-Type", "application/json");
   try {
     var userId = await routeUtils.verifyLoggedIn(req, true);
-    var start = ((Number(req.query.page) || 1) - 1) * constants.lobbyPageSize;
+    var start =
+      (Math.max(1, Math.floor(Number(req.query.page)) || 1) - 1) *
+      constants.lobbyPageSize;
+    // With a page number, finished games are paged by offset. The `last` /
+    // `first` cursor is only used by callers that send no page.
+    var usePageOffset = req.query.page !== undefined;
     var listName = String(req.query.list).toLowerCase();
     var lobby = String(req.query.lobby || "All");
     var last = Number(req.query.last);
@@ -227,6 +250,21 @@ router.get("/list", async function (req, res) {
 
     if (lobby != "All") games = games.filter((game) => game.lobby == lobby);
 
+    // Hide lobbies where the host and caller have blocked each other
+    if (userId) {
+      const blockCache = new Map();
+      const hostIds = [...new Set(games.map((g) => g.hostId).filter(Boolean))];
+      const hidden = new Set();
+      await Promise.all(
+        hostIds.map(async (hostId) => {
+          if (await usersBlockEachOther(userId, hostId, blockCache))
+            hidden.add(hostId);
+        })
+      );
+      if (hidden.size) games = games.filter((g) => !hidden.has(g.hostId));
+    }
+
+    var liveCount = games.length;
     games = games.slice(start, end);
 
     const setupIds = [
@@ -281,23 +319,44 @@ router.get("/list", async function (req, res) {
       games.length < constants.lobbyPageSize
     ) {
       var gameFilter = lobby != "All" ? { lobby } : {};
-      var finishedGames = await routeUtils.modelPageQuery(
-        models.Game,
-        gameFilter,
-        "endTime",
-        last,
-        first,
-        "id type setup lobby lobbyName anonymousGame anonymousDeck ranked competitive private spectating guests readyCheck noVeg stateLengths gameTypeOptions broken winnersInfo playerIdMap playerAlignmentMap endTime -_id",
-        constants.lobbyPageSize - games.length,
-        [
-          "setup",
-          "id gameType name roles closed useRoleGroups roleGroupSizes count total -_id",
-        ]
-      );
-      finishedGames = finishedGames.map((game) => ({
-        ...game.toJSON(),
-        status: "Finished",
-      }));
+      var finishedNeeded = constants.lobbyPageSize - games.length;
+      var finishedSelect =
+        "id type setup lobby lobbyName anonymousGame anonymousDeck ranked competitive private spectating guests readyCheck noVeg stateLengths gameTypeOptions broken winnersInfo playerIdMap playerAlignmentMap endTime -_id";
+      var finishedSetupSelect =
+        "id gameType name roles closed useRoleGroups roleGroupSizes count total -_id";
+      // A few extra rows so that dropping a repeated id still fills the page.
+      var finishedLimit = finishedNeeded + FINISHED_DEDUPE_SLACK;
+      var finishedGames;
+
+      if (usePageOffset) {
+        finishedGames = await models.Game.find(gameFilter)
+          .select(finishedSelect)
+          .sort({ endTime: -1, _id: -1 })
+          .skip(gameListPaging.finishedSkip(start, liveCount))
+          .limit(finishedLimit)
+          .populate("setup", finishedSetupSelect);
+      } else {
+        finishedGames = await routeUtils.modelPageQuery(
+          models.Game,
+          gameFilter,
+          "endTime",
+          last,
+          first,
+          finishedSelect,
+          finishedLimit,
+          ["setup", finishedSetupSelect]
+        );
+      }
+
+      finishedGames = gameListPaging
+        .dedupeById(
+          finishedGames.map((game) => ({
+            ...game.toJSON(),
+            status: "Finished",
+          })),
+          games.map((game) => game.id)
+        )
+        .slice(0, finishedNeeded);
       games = games.concat(finishedGames);
     }
 
@@ -326,6 +385,19 @@ router.get("/:id/connect", async function (req, res) {
     if (!userId && !game.settings.guests) {
       errors.unauthorized(res, "You must be logged in to join or spectate games.");
       return;
+    }
+
+    // Block checks against the host and seated players
+    // (skipped if the user is already in this game so they can finish it)
+    if (userId && (await redis.inGame(userId)) !== gameId) {
+      const blockCache = new Map();
+      const others = [game.hostId, ...(game.players || [])];
+      for (let otherId of new Set(others.filter(Boolean))) {
+        if (await usersBlockEachOther(userId, otherId, blockCache)) {
+          errors.forbidden(res, "You can't join this game.");
+          return;
+        }
+      }
     }
 
     // If the user is in this game, then ignore all checks so that they can finish out the game
@@ -536,7 +608,7 @@ router.get("/:id/info", async function (req, res) {
     if (!game) {
       game = await models.Game.findOne({ id: gameId })
         .select(
-          "type users spectatorsUsers players spectators left stateLengths lobbyName ranked competitive anonymousGame anonymousDeck spectating guests readyCheck noVeg startTime endTime gameTypeOptions winners winnersInfo kudosReceiver playerIdMap playerAlignmentMap skillRatingChanges -_id"
+          "type users spectatorsUsers players spectators left stateLengths lobbyName ranked competitive anonymousGame anonymousDeck spectating guests readyCheck noVeg startTime endTime gameTypeOptions winners winnersInfo kudosReceiver kudosReceivers playerIdMap playerAlignmentMap skillRatingChanges -_id"
         )
         .populate("users", "id name avatar -_id");
 
@@ -596,10 +668,23 @@ router.post("/host", async function (req, res) {
       return;
     }
 
+    var rehostId = req.body.rehost && String(req.body.rehost);
+    var rehostSource = null;
+
+    if (rehostId) {
+      // Carry over the old lobby's settings (ready check, anonymous deck,
+      // private, timers...). They still go through every check below.
+      rehostSource = await rehost.getRehostSource(rehostId, userId);
+
+      if (rehostSource && rehostSource.gameType === String(req.body.gameType)) {
+        Object.assign(req.body, rehostSource.body);
+        delete req.body.scheduled;
+      } else rehostSource = null;
+    }
+
     var gameType = String(req.body.gameType);
     var lobby = String(req.body.lobby);
     var lobbyName = req.body.lobbyName ? String(req.body.lobbyName) : null;
-    var rehostId = req.body.rehost && String(req.body.rehost);
     var scheduled = Number(req.body.scheduled);
 
     const now = Date.now();
@@ -939,6 +1024,18 @@ router.post("/host", async function (req, res) {
 
       res.send(gameId);
       redis.unsetCreatingGame(userId);
+
+      if (rehostSource) {
+        // Invite everyone still in the old game's postgame to the new lobby
+        gameLoadBalancer
+          .notifyRehost(rehostId, gameId, {
+            hostId: userId,
+            hostName: user.name,
+            setup: rehost.setupSummary(setup),
+          })
+          .catch((e) => logger.error(e));
+      }
+
       let ping;
       if (gameType !== "Mafia") {
         ping = "<@&1118235252784111666>\n";

@@ -1398,6 +1398,7 @@ const roleData = {
         "Each night, you can choose to visit one player and swap roles with them.",
         //"Each night, chooses a player to swap roles with.",
         "You can only swap roles once.",
+        "The swap happens before other night actions. You and the player you swapped with use the new roles that same night.",
       ],
       nightOrder: [["Swap Roles", PRIORITY_SWAP_ROLES]],
     },
@@ -1407,6 +1408,7 @@ const roleData = {
       tags: ["Conversion", "Alignment Changing", "Visiting", "Advanced"],
       description: [
         `Each night, you can choose to visit two players and make them swap roles.`,
+        "The swap happens before other night actions, and the swapped players use their new roles that same night.",
         //"Each night chooses 2 players.",
         //"The selected players will swap roles.",
       ],
@@ -1995,6 +1997,7 @@ const roleData = {
       description: [
         "Once per game at night, you can choose Village-aligned role from the setup.",
         "You will be converted to the chosen role.",
+        "This choice happens before other night actions, and you use the new role that same night.",
         `If another player is that role, that player will become "Delirious" until you die.`,
         deliriumDef,
         //"At night may choose to convert to a Village aligned role that can spawn in the setup.",
@@ -3423,6 +3426,7 @@ const roleData = {
       description: [
         "Once per game at night, you can choose a Mafia-aligned role from the setup.",
         "You will be converted to the chosen role.",
+        "This choice happens before other night actions, and you use the new role that same night.",
         `If another player is that role, that player will become "Delirious" until you die.`,
         deliriumDef,
         "You do not attend the mafia meeting.",
@@ -3852,6 +3856,7 @@ const roleData = {
       description: [
         `Each night, you can choose to visit two players and make them swap roles but not alignments.`,
         "You cannot swap Independent roles",
+        "The swap happens before other night actions, and the swapped players use their new roles that same night.",
       ],
       nightOrder: [["Swap Roles", PRIORITY_SWAP_ROLES + 1]],
     },
@@ -4324,6 +4329,9 @@ const roleData = {
         "If the chosen role is already in play, The conversion fails.",
         "Independent roles can only be converted to other Independent roles.",
         "Non-independent roles can not be converted to Independent roles.",
+        "You act before the main night. The converted player uses their new role that same night.",
+        "If you turn a Demon into another Demon, their old kill does not happen and the new Demon's kill does not happen that night.",
+        "If you turn a non-Demon into a Demon, a random unprotected old Demon dies and that Demon's kill does not happen. The new Demon kills that night. If every old Demon is protected, a random old Demon is chosen, that Demon's kill does not happen, and the new Demon dies instead.",
       ],
       nightOrder: [["Convert", PRIORITY_CONVERT_DEFAULT + 4]],
     },
@@ -4630,6 +4638,7 @@ const roleData = {
       description: [
         "Each night, you can choose to visit one player and kill them.",
         "If you kill yourself, a random Cult-aligned player becomes an Imp.",
+        "If you cannot die that night, choosing yourself does nothing.",
       ],
       nightOrder: [["Kill", PRIORITY_KILL_SPECIAL]],
     },
@@ -5020,6 +5029,7 @@ const roleData = {
       description: [
         "Each night, you can choose to visit one player and swap roles with them.",
         "You cannot win as Old Maid.",
+        "The swap happens before other night actions, and both players use their new roles that same night.",
       ],
       nightOrder: [["Swap Roles", PRIORITY_SWAP_ROLES]],
     },
@@ -5555,6 +5565,7 @@ const roleData = {
       description: [
         "Once per game at night, you can choose Independent role from the setup.",
         "You will be converted to that role.",
+        "This choice happens before other night actions, and you use the new role that same night.",
         `If another player is that role, that player will be converted to Amnesiac.`,
         "You cannot win the game as Egg.",
       ],
@@ -6003,39 +6014,26 @@ const roleData = {
       alignment: "Event",
       tags: ["Event", "Items"],
       description: [
-        "If this Event occurs, one random player will be given a Gun.",
-        gunDef,
+        "If this Event occurs, one random player will be given a random item.",
+        "The item can be a Gun, Armor, Bomb, Knife, Crystal Ball, Whiskey, Bread, Key, Falcon, Tract, Envelope, Syringe, Coffee, Shield, or Candle.",
+        "If this Event has item-giving modifiers, it gives those items instead of a random item. Multiple modifiers give multiple items.",
       ],
-      nightOrder: [["Give Gun", PRIORITY_ITEM_GIVER_DEFAULT]],
-    },
-    Moonshine: {
-      alignment: "Event",
-      tags: ["Event", "Items"],
-      description: [
-        "If this Event occurs, one random player will be given Whiskey.",
-        whiskeyDef,
-      ],
-      nightOrder: [["Give Whiskey", PRIORITY_ITEM_GIVER_DEFAULT]],
-    },
-    "Ominous Warning": {
-      alignment: "Event",
-      tags: ["Event", "Items"],
-      description: [
-        "If this Event occurs, one random player will be given a Knife.",
-        knifeDef,
-        bleedingDef,
-      ],
-      nightOrder: [["Give Knife", PRIORITY_ITEM_GIVER_DEFAULT]],
-    },
-    Vaccination: {
-      alignment: "Event",
-      tags: ["Event", "Items"],
-      description: [
-        "If this Event occurs, one random player will be given a Syringe.",
-        needleDef,
-      ],
-      nightOrder: [["Give Syringe", PRIORITY_ITEM_GIVER_DEFAULT]],
-      graveyardParticipation: "all",
+      nightOrder: [["Give Item", PRIORITY_ITEM_GIVER_DEFAULT]],
+      SpecialInteractionsModifiers: {
+        Armed: ["This Event gives a Gun. " + gunDef],
+        Bulletproof: ["This Event gives Armor. " + armorDef],
+        Birdbrained: ["This Event gives a Falcon. " + falconDef],
+        Caffeinated: ["This Event gives a Coffee. " + coffeeDef],
+        Churchgoing: ["This Event gives a Tract. " + tractDef],
+        Crystalline: ["This Event gives a Crystal Ball. " + crystalBallDef],
+        Explosive: ["This Event gives a Bomb. " + bombDef],
+        Keyed: ["This Event gives a Key. " + keyDef],
+        Luminous: ["This Event gives a Candle. " + candleDef],
+        Macabre: ["This Event gives a Syringe. " + needleDef],
+        Prosaic: ["This Event gives an Envelope. " + envelopeDef],
+        Shielded: ["This Event gives a Shield. " + shieldDef],
+        Steeled: ["This Event gives a Knife. " + knifeDef],
+      },
     },
     "Haunted House": {
       alignment: "Event",

@@ -19,8 +19,13 @@ import { useIsPhoneDevice } from "hooks/useIsPhoneDevice";
 import ImageViewer from "components/ImageViewer";
 import { usePopoverOpen } from "hooks/usePopoverOpen";
 import { useAvatarImageUrl, AvatarPhoto } from "utils/avatarUrl";
+import { observeNameAnimation } from "utils/nameAnimationViewport";
+import { nameGlowStyle, applyNameGlowStyle } from "utils/nameGlowStyle";
 
 import santaDir from "images/holiday/santahat.png";
+
+// Names without a miniprofile must not subscribe to every game update.
+const NameOnlyGameContext = React.createContext(null);
 
 // Miniprofile only renders inside an opened popover, and it pulls in d3 via
 // PieChart — keep it out of the initial bundle.
@@ -374,6 +379,21 @@ function RipAvatarIcon({ small, large, absoluteLeftAvatarPx }) {
   return <div className="avatar avatar-rip-icon" style={style} aria-hidden />;
 }
 
+// Background color behind the default no-avatar image, picked from the name.
+function noAvatarColor(name, colors) {
+  var rand = 0;
+
+  for (let i = 0; i < name.length; i++) rand ^= name.charCodeAt(i);
+
+  rand ^= name.charCodeAt(1);
+  rand ^= rand << 13;
+  rand ^= rand >> 7;
+  rand ^= rand << 17;
+  rand = Math.abs(rand) / Math.pow(2, 31);
+
+  return colors[Math.floor(rand * colors.length)];
+}
+
 export function Avatar(props) {
   const small = props.small;
   const mediumlarge = props.mediumlarge;
@@ -399,6 +419,9 @@ export function Avatar(props) {
   const inGame = props.inGame;
 
   const siteInfo = useContext(SiteInfoContext);
+  // Last image URL that failed to load (missing upload etc.); fall back to the
+  // default no-avatar look for it.
+  const [failedSrc, setFailedSrc] = useState(null);
   const isDeckAvatar =
     !!deckProfile ||
     (typeof hasImage === "string" && hasImage.includes("decks"));
@@ -461,23 +484,17 @@ export function Avatar(props) {
   } else if (hasImage && imageUrl) {
     photoSrc = imageUrl;
   } else if (name) {
-    var rand = 0;
-
-    for (let i = 0; i < name.length; i++) rand ^= name.charCodeAt(i);
-
-    rand ^= name.charCodeAt(1);
-    rand ^= rand << 13;
-    rand ^= rand >> 7;
-    rand ^= rand << 17;
-    rand = Math.abs(rand) / Math.pow(2, 31);
-
-    style.backgroundColor = colors[Math.floor(rand * colors.length)];
+    style.backgroundColor = noAvatarColor(name, colors);
   }
   if (typeof hasImage == "string") {
     if (hasImage.includes("decks")) {
       photoSrc = `/uploads${hasImage}?t=${siteInfo.cacheVal}`;
       style.backgroundColor = "#00000000";
     }
+  }
+  if (photoSrc && photoSrc === failedSrc) {
+    photoSrc = null;
+    style.backgroundColor = name ? noAvatarColor(name, colors) : undefined;
   }
   if (photoSrc) {
     style.backgroundImage = "none";
@@ -520,7 +537,7 @@ export function Avatar(props) {
         border: border,
       }}
     >
-      <AvatarPhoto src={photoSrc} />
+      <AvatarPhoto src={photoSrc} onError={setFailedSrc} />
       {edit && (
         <div className="edit avatar-edit-overlay">
           <AvatarUpload
@@ -606,21 +623,34 @@ export function NameWithAvatar(props) {
   const isSquare = props.isSquare;
   const subContent = props.subContent;
   const ripAvatar = props.ripAvatar;
+  const hideAvatar = props.hideAvatar;
   const nameColorSwatch = props.nameColorSwatch;
   const nameFont = props.nameFont;
   const animatedNameColor = props.animatedNameColor;
   const nameGradientColorA = props.nameGradientColorA || "#ff0040";
   const nameGradientColorB = props.nameGradientColorB || "#00c2ff";
   const nameGradientColorC = props.nameGradientColorC || "#3dff6a";
+  const nameTextRef = useRef(null);
 
-  const game = useContext(GameContext);
+  useEffect(() => {
+    if (dead || !animatedNameColor || animatedNameColor === "none") return;
+    return observeNameAnimation(nameTextRef.current);
+  }, [animatedNameColor, dead]);
+
+  const game = useContext(
+    includeMiniprofile && !noLink ? GameContext : NameOnlyGameContext
+  );
   const user = useContext(UserContext);
   const [userProfile, setUserProfile] = useState(null);
   const [isClicked, setIsClicked] = useState(false);
 
   const autoColor = user.autoContrastColor(color);
+  // Viewer setting: drop special name fonts. Colors and animations stay.
+  const ignoreNameFonts = user.settings && user.settings.ignoreNameFonts;
   const nameFontClass =
-    nameFont && nameFont !== "default" ? `name-font-${nameFont}` : "";
+    !ignoreNameFonts && nameFont && nameFont !== "default"
+      ? `name-font-${nameFont}`
+      : "";
   // Dead names stay red; skip cosmetics that would override .user-name.dead
   const nameAnimClass =
     !dead && animatedNameColor && animatedNameColor !== "none"
@@ -636,6 +666,9 @@ export function NameWithAvatar(props) {
   const useSolidNameColor = !dead && autoColor && !usesClipText;
   const nameStyle = {
     ...(useSolidNameColor ? { color: autoColor } : {}),
+    ...(!dead && animatedNameColor === "glow" && useSolidNameColor
+      ? nameGlowStyle(autoColor)
+      : {}),
     display: "inline",
     ...(animatedNameColor === "gradient" || animatedNameColor === "tricolor"
       ? {
@@ -647,6 +680,17 @@ export function NameWithAvatar(props) {
         }
       : {}),
   };
+
+  useEffect(() => {
+    if (dead || animatedNameColor !== "glow") return;
+    if (useSolidNameColor && Object.keys(nameGlowStyle(autoColor)).length) return;
+    const element = nameTextRef.current;
+    if (!element) return;
+    // Inherited name colors need their actual channels, not palette defaults.
+    // Resolve once when color/theme changes, never on animation frames.
+    const inheritedStyle = nameGlowStyle(window.getComputedStyle(element).color);
+    return applyNameGlowStyle(element, inheritedStyle);
+  }, [animatedNameColor, dead, useSolidNameColor, autoColor, user]);
 
   const {
     popoverOpen: canOpenPopover,
@@ -684,7 +728,7 @@ export function NameWithAvatar(props) {
         alignItems: "center",
       }}
     >
-      {ripAvatar ? (
+      {hideAvatar ? null : ripAvatar ? (
         <RipAvatarIcon
           small={small}
           large={large}
@@ -724,6 +768,7 @@ export function NameWithAvatar(props) {
             <Typography
               component="span"
               className="user-name-text"
+              ref={nameTextRef}
               sx={{ color: "inherit", fontFamily: "inherit" }}
             >
               {name}
